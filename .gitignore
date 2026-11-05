@@ -7,4 +7,4 @@ evidence/
 .DS_Store
 *.egg-info/
 .mcp.json
-
+.claude
