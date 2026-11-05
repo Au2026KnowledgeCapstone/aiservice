@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aiservice"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.34,<1",
+    "sqlalchemy>=2,<3",
+    "psycopg2-binary",
+    "alembic",
+    "pydantic>=2.13,<3",
+    "python-dotenv",
+    "httpx",
+    "cryptography",
+]
+
+[project.optional-dependencies]
+engine = ["playwright==1.63.0"]
+test = ["pytest", "pytest-asyncio"]
+
+[tool.setuptools.packages.find]
+include = ["app*", "engines*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
