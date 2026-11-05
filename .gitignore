@@ -6,3 +6,5 @@ __pycache__/
 evidence/
 .DS_Store
 *.egg-info/
+.mcp.json
+
