@@ -1,3 +1,4 @@
+import subprocess
 import sys
 
 import pytest
@@ -31,6 +32,15 @@ def test_build_mvp_and_graph_fail_without_import_error():
 
 
 def test_selecting_stub_does_not_import_playwright():
-    sys.modules.pop("playwright", None)
-    build_engine("stub", provider=_FakeProvider())
-    assert "playwright" not in sys.modules
+    # Run in a subprocess: sys.modules is process-global, so checking it in this
+    # process would pass or fail depending on what another test imported first.
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from engines.registry import build_engine; "
+            "build_engine('stub', provider=None); "
+            "sys.exit(1 if 'playwright' in sys.modules else 0)",
+        ],
+        check=True,
+    )
