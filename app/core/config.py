@@ -4,13 +4,17 @@ from pathlib import Path
 from typing import Literal
 
 from dotenv import dotenv_values
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     engine: Literal["mvp", "graph", "stub"] = "mvp"
+    database_url: str  # aiservice's own operational database. Required.
+    service_token: str = Field(default="", repr=False)  # BE presents this on POST /v1/jobs.
+    max_concurrent_jobs: int = Field(default=1, ge=1)
+    job_timeout_seconds: int = Field(default=1800, ge=1)
 
 
 def _settings_from_sources(*sources: dict) -> Settings:
