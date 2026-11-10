@@ -14,6 +14,11 @@ def _clear_settings_cache():
 
 
 @pytest.fixture(autouse=True)
+def _ignore_local_dotenv(monkeypatch):
+    monkeypatch.setattr("app.core.config.dotenv_values", lambda *args, **kwargs: {})
+
+
+@pytest.fixture(autouse=True)
 def _default_database_url(monkeypatch):
     # Tests that care about DATABASE_URL's absence unset it themselves, after
     # this fixture runs, using the same (function-scoped) monkeypatch instance.

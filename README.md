@@ -20,6 +20,37 @@ python3.12 -m venv .venv
 
 Copy `.env.example` to `.env` and adjust as needed.
 
+## Operational database
+
+Set `DATABASE_URL` in `.env` to a PostgreSQL database owned by this service,
+then apply the schema:
+
+```sh
+.venv/bin/alembic upgrade head
+.venv/bin/alembic current
+```
+
+The initial migration creates `jobs` and `outbox`. Run migrations before
+starting the API; table creation is not performed automatically at startup.
+
+For local development with PostgreSQL tools installed, an isolated cluster
+can live in the ignored `.local/` directory:
+
+```sh
+initdb -D .local/postgres -A trust --no-locale -E UTF8
+pg_ctl -D .local/postgres -l .local/postgres.log -o '-h 127.0.0.1 -p 55432 -k /tmp' start
+psql -h 127.0.0.1 -p 55432 -d postgres -v ON_ERROR_STOP=1 -c "CREATE ROLE aiservice LOGIN PASSWORD 'aiservice' NOSUPERUSER NOCREATEDB NOCREATEROLE;" -c 'CREATE DATABASE aiservice OWNER aiservice;'
+```
+
+Use `DATABASE_URL=postgresql+psycopg2://aiservice:aiservice@127.0.0.1:55432/aiservice`
+in `.env`. This cluster uses trust authentication for local development only.
+Initialize the cluster and create the role/database once. On subsequent runs,
+use the `pg_ctl ... start` command above. Stop it with:
+
+```sh
+pg_ctl -D .local/postgres stop
+```
+
 ## Layout
 
 ```
