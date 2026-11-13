@@ -8,10 +8,19 @@ module rather than split into a same-named file, since they're the same live
 session object Step 1 already introduced.
 
 No pinned-IP egress proxy here (reference's proxy.py): verification.py, the
-pattern this handoff says to copy for driving the browser, does not use one
-either — it relies solely on `context.route` re-validating every request. A4
-stays consistent with that already-reviewed pattern rather than adding a
-second request-policing mechanism.
+pattern this handoff says to copy for driving the browser, does not use one,
+and A4 stays consistent with that already-reviewed pattern rather than
+building a second, inconsistent mechanism for DNS-pinning/TOCTOU protection.
+
+Request interception is still two-layered, though, because `context.route`
+alone measurably is not enough: Playwright's `route()` only sees the first
+request of a redirect chain — confirmed directly, not assumed from the
+reference's comment about it — so a disallowed-origin redirect would sail
+through unchecked with route() alone. The CDP `Fetch` domain (`_attach_cdp_policy`
+below) sees every hop and is what actually makes "a mid-run redirect to a
+disallowed origin is aborted" true. This is unrelated to the egress-proxy
+question above: it needs no raw-socket relay, just a second interception
+point in the same page.
 """
 import asyncio
 from urllib.parse import urlsplit
@@ -52,6 +61,23 @@ async def _route_handler(policy: NetworkPolicy, route):
     except PolicyDenied as exc:
         policy.denied(request.url, str(exc), critical=request.is_navigation_request())
         await route.abort()
+
+
+async def _attach_cdp_policy(context, page, policy: NetworkPolicy) -> None:
+    """Catches every redirect hop; route() above only sees the first request."""
+    cdp = await context.new_cdp_session(page)
+
+    async def paused(event):
+        request = event["request"]
+        try:
+            await policy.check(request["url"], request["method"], event.get("resourceType") == "Document")
+            await cdp.send("Fetch.continueRequest", {"requestId": event["requestId"]})
+        except PolicyDenied as exc:
+            policy.denied(request["url"], str(exc), critical=event.get("resourceType") in {"Document", "XHR", "Fetch", "Script"})
+            await cdp.send("Fetch.failRequest", {"requestId": event["requestId"], "errorReason": "BlockedByClient"})
+
+    cdp.on("Fetch.requestPaused", lambda event: asyncio.ensure_future(paused(event)))
+    await cdp.send("Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]})
 
 
 async def _login(page, credentials: Credentials) -> bool:
@@ -117,6 +143,7 @@ class MvpSession:
         await context.route_web_socket("**/*", lambda ws: ws.close())
         page = await context.new_page()
         page.on("dialog", lambda dialog: asyncio.ensure_future(dialog.dismiss()))
+        await _attach_cdp_policy(context, page, self.policy)
         return context, page
 
     async def open_landing(self, page) -> None:
@@ -222,6 +249,7 @@ async def open_session(target: Target, credentials: Credentials) -> MvpSession:
                     await context.route("**/*", route_handler)
                     await context.route_web_socket("**/*", lambda ws: ws.close())
                     page = await context.new_page()
+                    await _attach_cdp_policy(context, page, policy)
                     await policy.check(target.url, "GET", True)
                     await page.goto(target.url, wait_until="domcontentloaded")
                     if await _login(page, credentials):
