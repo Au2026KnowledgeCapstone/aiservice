@@ -51,7 +51,8 @@ def test_valid_token_reaches_job_endpoint(client):
         headers={"Authorization": "Bearer service-secret"},
     )
     assert response.status_code == 202
-    assert response.json() == {"job_id": "job-1", "run_id": "run-1", "duplicate": False}
+    assert response.json()["status"] in {"received", "running", "finished"}
+    assert {key: response.json()[key] for key in ("job_id", "run_id", "duplicate")} == {"job_id": "job-1", "run_id": "run-1", "duplicate": False}
 
 
 @pytest.mark.parametrize("token", ["", "   "])
@@ -71,7 +72,7 @@ def test_health_remains_public_without_configured_token(client):
     for path in ("/health", "/heath"):
         response = http.get(path)
         assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
+        assert response.json() == {"status": "ok", "engine": "stub"}
 
 
 def test_authenticated_invalid_envelope_returns_422(client):

@@ -127,4 +127,4 @@ async def test_usage_delivery_precedes_cost_finalization(database):
         worker = DeliveryWorker(config(), database, client)
         while await worker.deliver_once():
             pass
-    assert paths == ["/runs/run-1/ai-usage", "/runs/run-1/ai-usage", "/runs/run-1/ai-cost-finalizations"]
+    assert paths == ["/internal/v1/runs/run-1/ai-usage", "/internal/v1/runs/run-1/ai-usage", "/internal/v1/runs/run-1/ai-cost-finalizations"]

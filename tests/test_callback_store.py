@@ -21,3 +21,16 @@ def test_durable_sequence_and_encrypted_token(database):
         assert envelope.callback_token not in str(job.envelope)
         assert envelope.callback_token not in job.callback_secret
         assert cipher.decrypt(job.callback_secret.encode()).decode() == envelope.callback_token
+
+
+def test_execution_sequences_restart_per_attempt_not_delivery_retry(database):
+    import pytest
+    accept_job(database, JobEnvelope.model_validate(PAYLOAD), token_cipher(config()))
+    with database.begin() as db:
+        first = execution_event(db, "job-1", "job.running", {}, attempt=1)
+        second = execution_event(db, "job-1", "job.failed", {}, attempt=1)
+        retry = execution_event(db, "job-1", "job.running", {}, attempt=2)
+        assert [(r.attempt, r.sequence) for r in (first, second, retry)] == [(1, 1), (1, 2), (2, 1)]
+        assert retry.payload["attempt"] == 2
+    with database.begin() as db, pytest.raises(ValueError, match="backwards"):
+        execution_event(db, "job-1", "job.running", {}, attempt=1)

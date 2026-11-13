@@ -49,7 +49,7 @@ class StubBackend:
             from decimal import Decimal
             # Match the fixed-scale database representation used by the sender.
             items = [{"usage_id": r.usage_id, "revision": r.revision, "status": r.status,
-                      "tokens": r.tokens,
+                      "tokens": r.tokens.model_dump(),
                       "amount": str(r.amount.quantize(Decimal("0.000000000001"))) if r.amount is not None else None,
                       "currency": r.currency} for r in records]
             digest = hashlib.sha256(json.dumps(items, sort_keys=True, separators=(",", ":")).encode()).hexdigest()

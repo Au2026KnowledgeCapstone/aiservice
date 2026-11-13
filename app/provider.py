@@ -8,6 +8,7 @@ import uuid
 
 from sqlalchemy import JSON, DateTime, ForeignKey, Integer, Numeric, String, select
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.callbacks.schemas import CostFinalization, UsageEvent
 from app.callbacks.store import enqueue
@@ -25,7 +26,7 @@ class UsageRecord(Base):
     model: Mapped[str] = mapped_column(String(100))
     operation: Mapped[str] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(20))
-    tokens: Mapped[dict] = mapped_column(JSON)
+    tokens: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"))
     amount: Mapped[Decimal | None] = mapped_column(Numeric(24, 12))
     currency: Mapped[str] = mapped_column(String(3), default="USD")
     created_at: Mapped[object] = mapped_column(DateTime(timezone=True))

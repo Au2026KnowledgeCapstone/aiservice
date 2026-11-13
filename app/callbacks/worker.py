@@ -1,16 +1,20 @@
 """At-least-once delivery: receivers must deduplicate stable event_id values."""
 import asyncio
+import logging
 from datetime import timedelta
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 import uuid
 
 import httpx
-from sqlalchemy import exists, or_, select, update
+from sqlalchemy import exists, or_, and_, select, update
 from sqlalchemy.orm import aliased
 
 from app.callbacks.secrets import token_cipher
 from app.callbacks.store import CALLBACK_ROUTES
 from app.jobs.models import Job, OutboxEntry, now
+
+
+logger = logging.getLogger(__name__)
 
 
 class DeliveryWorker:
@@ -37,10 +41,11 @@ class DeliveryWorker:
                 *eligible,
                 ~exists(select(previous.id).where(
                     previous.job_id == OutboxEntry.job_id,
-                    previous.sequence < OutboxEntry.sequence,
+                    or_(previous.attempt < OutboxEntry.attempt,
+                        and_(previous.attempt == OutboxEntry.attempt, previous.sequence < OutboxEntry.sequence)),
                     previous.delivered_at.is_(None),
                 )),
-            ).order_by(OutboxEntry.job_id, OutboxEntry.sequence).limit(1))
+            ).order_by(OutboxEntry.job_id, OutboxEntry.attempt, OutboxEntry.sequence).with_for_update(skip_locked=True).limit(1))
             if candidate is None:
                 return None
             owner = str(uuid.uuid4())
@@ -78,10 +83,13 @@ class DeliveryWorker:
         else:
             values["failed_at"] = timestamp
         with self.sessions.begin() as db:
-            db.execute(update(OutboxEntry).where(
+            result = db.execute(update(OutboxEntry).where(
                 OutboxEntry.id == entry["id"], OutboxEntry.lease_owner == entry["owner"],
                 OutboxEntry.delivered_at.is_(None),
             ).values(**values))
+        if result.rowcount and error is not None and not retry:
+            # IDs and categories only: never log the envelope, URL, token or body.
+            logger.error("Permanent callback delivery failure: event_id=%s category=%s", entry["id"], error)
 
     async def deliver_once(self):
         entry = await asyncio.to_thread(self.claim)
@@ -98,7 +106,15 @@ class DeliveryWorker:
         run_segment = quote(entry["run_id"], safe="")
         if run_segment in (".", ".."):
             run_segment = run_segment.replace(".", "%2E")
-        url = (entry["base_url"].rstrip("/") + "/runs/" + run_segment
+        prefix = entry["base_url"].rstrip("/")
+        try:
+            prefixed = urlsplit(prefix).path.endswith("/internal/v1")
+        except ValueError:
+            await asyncio.to_thread(self.acknowledge, entry, "InvalidCallbackURL")
+            return True
+        if not prefixed:
+            prefix += "/internal/v1"
+        url = (prefix + "/runs/" + run_segment
                + "/" + CALLBACK_ROUTES[entry["kind"]])
         try:
             response = await self.client.post(

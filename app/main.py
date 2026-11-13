@@ -12,7 +12,7 @@ from app.core.auth import require_service_token
 from app.core.config import settings
 from app.callbacks.worker import DeliveryWorker
 from app.jobs.runner import JobRunner
-from app.jobs.store import JobConflict
+from app.jobs.store import JobConflict, job_status
 from app.schemas.jobs import JobEnvelope
 from engines.registry import build_engine
 from app.provider import MeteredProvider
@@ -54,8 +54,8 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
 
     @application.get("/health")
     @application.get("/heath", include_in_schema=False)
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
+    async def health(resolved=Depends(settings)) -> dict[str, str]:
+        return {"status": "ok", "engine": resolved.engine}
 
     @application.post(
         "/v1/jobs", status_code=status.HTTP_202_ACCEPTED,
@@ -73,7 +73,9 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
             raise HTTPException(409, "Job ID already exists with a different envelope.") from None
         except SQLAlchemyError:
             raise HTTPException(503, "Job storage is unavailable.") from None
-        return {"job_id": envelope.job_id, "run_id": envelope.run_id, "duplicate": not created}
+        current = await asyncio.to_thread(job_status, runner.sessions, envelope.job_id)
+        return {"job_id": envelope.job_id, "run_id": envelope.run_id,
+                "duplicate": not created, "status": current}
 
     return application
 
