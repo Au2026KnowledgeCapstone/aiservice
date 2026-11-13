@@ -16,6 +16,14 @@ class Settings(BaseModel):
     max_concurrent_jobs: int = Field(default=1, ge=1)
     job_timeout_seconds: int = Field(default=1800, ge=1)
     callback_encryption_key: str = Field(default="", repr=False)
+    extraction_api_url: str = "https://api.openai.com/v1"
+    extraction_api_key: str = Field(default="", repr=False)
+    extraction_model: str = ""
+    extraction_timeout_seconds: float = Field(default=80, ge=1, le=120)
+    verification_timeout_seconds: float = Field(default=30, ge=1, le=60)
+    verification_enabled: bool = False
+    verification_allowed_private_hosts: str = ""
+    verification_browser_executable: str = ""
     callback_poll_seconds: float = Field(default=1.0, gt=0)
     callback_timeout_seconds: float = Field(default=10.0, gt=0)
     callback_lease_seconds: float = Field(default=30.0, gt=0)
