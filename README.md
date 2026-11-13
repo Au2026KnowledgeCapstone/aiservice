@@ -71,13 +71,25 @@ cancels queued and running tasks and records `cancelled`. Both session and engin
 cleanup are attempted, with a five-second bound per close operation.
 
 Evidence and requirement outcomes are retained in `outbox` (screenshots as
-base64). Callback delivery/retries need the agreed BlindSpotBE integration
-contract and are not implemented here. No AI provider or real browser engine
-is configured yet; selecting `mvp` or `graph` currently produces a failed job.
+base64). Execution, metered usage, and cost-finalization callbacks are persisted
+before delivery and sent by a leased, ordered outbox worker. Temporary failures
+retry with exponential backoff; permanent rejections block later callbacks for
+that job. See [the callback contract](docs/callback-contract.md). The available
+BE callback handlers still return 501; production integration requires their
+implementation. The fake-backend round trip is tested without the frontend.
+
+The metered provider writes a usage reservation before a model call and a final
+usage revision afterward. Missing token counts/costs remain null. A1 includes
+NullProvider and fake test transports only; no real AI SDK integration or
+browser engine is configured. Selecting `mvp` or `graph` produces a failed job.
 
 Tasks are process-local. Abrupt process termination can leave `received` or
-`running` records; automatic restart recovery is not implemented because
-credentials exist only in memory. Existing IDs are never automatically rerun.
+`running` records because credentials exist only in memory. Existing IDs are
+never automatically rerun. After stopping all API workers, reconcile a stranded
+job with `.venv/bin/python -m app.recovery JOB_ID`; it marks interrupted work
+failed and unresolved usage unknown, then queues cost closure. It never reruns
+a model request. Pending callbacks resume automatically after worker restart
+and lease expiry; BE must deduplicate stable event IDs.
 Use one worker when a service-wide concurrency limit is required. The database
 primary key still prevents duplicate acceptance across workers.
 
@@ -120,6 +132,9 @@ app/
   core/       # configuration, database access, service auth
   jobs/       # persistence, background runner, operational models
   schemas/    # validated job envelopes
+  callbacks/  # wire schemas, encrypted tokens, sequencing, delivery worker
+  provider.py # metered boundary, NullProvider, usage ledger, cost closure
+  recovery.py # offline interrupted-job reconciliation
 engines/
   base.py     # the Engine protocol — the contract every engine satisfies
   stub/       # deterministic engine; proves the round trip before a browser exists
@@ -128,3 +143,17 @@ engines/
 
 An engine never touches the database, the filesystem, the network policy, or
 an AI SDK directly — it only sees what `engines/base.py` hands it.
+
+## Verification and handoff
+
+```sh
+.venv/bin/python -m pytest -q
+# Optional real PostgreSQL test; creates/removes a disposable schema:
+AISERVICE_TEST_POSTGRES=1 .venv/bin/python -m pytest tests/test_postgres.py -q
+```
+
+See [A1 implementation and environment reference](docs/a1-handoff.md),
+[backend route ownership](docs/backend-route-inventory.md),
+[A2 evidence proposal](docs/a2-evidence-design.md), and
+[cost/RAG investigation](docs/ai-cost-and-rag.md). A2 cloud uploads, video,
+retrieval, and real model integrations are intentionally outside A1.
