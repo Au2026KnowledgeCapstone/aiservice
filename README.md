@@ -21,8 +21,12 @@ make init
 `make init` creates `.venv` if needed, installs the test and browser extras,
 installs Playwright Chromium, and copies `.env.example` only when `.env` does
 not already exist. Set `DATABASE_URL` to a reachable PostgreSQL database and
-set a nonempty `SERVICE_TOKEN` (use the same value in BE). Then initialize the
-aiservice schema and start the single-worker API:
+set a nonempty `SERVICE_TOKEN` (use the same value in BE). To enable MVP planning
+and screenshot assessment, set `AI_API_KEY` and `AI_MODEL` in `.env`; the default
+model is `gpt-4o-mini`. `AI_API_URL` defaults to OpenAI's API and can point to an
+OpenAI-compatible HTTPS endpoint. Without an AI key, jobs can still run but
+model-dependent decisions become inconclusive. Then initialize the aiservice
+schema and start the single-worker API:
 
 ```sh
 make migrate
@@ -98,9 +102,12 @@ implements authenticated callback ingestion. The stub-backend round trip and an
 opt-in real BE HTTP round trip are tested without the frontend.
 
 The metered provider writes a usage reservation before a model call and a final
-usage revision afterward. Missing token counts/costs remain null. The MVP
-browser engine and a metered provider are implemented; selecting `graph` still
-produces a failed job.
+usage revision afterward. Missing token counts/costs remain null. The MVP uses
+OpenAI-compatible structured JSON output for planning and assessment, including
+browser screenshots. `AI_TIMEOUT_SECONDS` bounds each model request. Calls are
+not retried; token counts are recorded when returned, while dollar cost remains
+unknown because no pricing is configured. Selecting `graph` still produces a
+failed job.
 
 Tasks are process-local. Abrupt process termination can leave `received` or
 `running` records because credentials exist only in memory. Existing IDs are
