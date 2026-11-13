@@ -13,9 +13,10 @@ from app.jobs.runner import JobRunner
 from app.jobs.store import JobConflict
 from app.schemas.jobs import JobEnvelope
 from engines.registry import build_engine
+from app.provider import MeteredProvider
 
 
-def create_app(config=None, sessions=None, engine_factory=build_engine, callback_client=None, start_delivery=True) -> FastAPI:
+def create_app(config=None, sessions=None, engine_factory=build_engine, callback_client=None, start_delivery=True, provider_factory=MeteredProvider) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application):
         resolved = config or settings()
@@ -24,7 +25,7 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
         if factory is None:
             db_engine = create_engine(resolved.database_url, pool_pre_ping=True)
             factory = sessionmaker(bind=db_engine, expire_on_commit=False)
-        application.state.runner = JobRunner(resolved, factory, engine_factory)
+        application.state.runner = JobRunner(resolved, factory, engine_factory, provider_factory)
         application.state.delivery = DeliveryWorker(resolved, factory, callback_client)
         if start_delivery:
             await application.state.delivery.start()

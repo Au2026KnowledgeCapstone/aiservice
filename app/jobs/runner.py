@@ -12,6 +12,7 @@ from app.jobs.models import Job, OutboxEntry, now
 from app.jobs.store import accept_job
 from app.callbacks.secrets import token_cipher
 from app.callbacks.store import execution_event
+from app.provider import MeteredProvider, finalize_costs
 from app.schemas.jobs import JobEnvelope, to_requirement_snapshot
 from engines.base import Credentials, Target
 from engines.registry import build_engine
@@ -19,16 +20,12 @@ from engines.registry import build_engine
 logger = logging.getLogger(__name__)
 
 
-class UnconfiguredProvider:
-    async def structured(self, **kwargs):
-        raise RuntimeError("AI provider is not configured")
-
-
 class JobRunner:
-    def __init__(self, config: Settings, sessions: sessionmaker, engine_factory=build_engine):
+    def __init__(self, config: Settings, sessions: sessionmaker, engine_factory=build_engine, provider_factory=MeteredProvider):
         self.config = config
         self.sessions = sessions
         self.engine_factory = engine_factory
+        self.provider_factory = provider_factory
         self.semaphore = asyncio.Semaphore(config.max_concurrent_jobs)
         self.tasks: set[asyncio.Task] = set()
         self.admissions: set[asyncio.Task] = set()
@@ -86,6 +83,7 @@ class JobRunner:
                 job.status = "cancelled"
                 job.finished_at = now()
                 execution_event(db, job_id, "job.cancelled", {"status": "cancelled"})
+                finalize_costs(db, job_id)
 
     async def db_call(self, function, *args):
         task = asyncio.create_task(asyncio.to_thread(function, *args))
@@ -106,6 +104,8 @@ class JobRunner:
             else:
                 job.finished_at = now()
             execution_event(db, job_id, f"job.{status}", {"status": status, "error": error})
+            if status in ("finished", "failed", "cancelled"):
+                finalize_costs(db, job_id)
 
     async def status(self, job_id, status, error=None):
         await self.db_call(self._status, job_id, status, error)
@@ -139,7 +139,9 @@ class JobRunner:
         engine = None
         session = None
         try:
-            engine = self.engine_factory(envelope.engine, provider=UnconfiguredProvider())
+            engine = self.engine_factory(
+                envelope.engine, provider=self.provider_factory(self.sessions, envelope.job_id),
+            )
             session = await engine.prepare(
                 Target(envelope.target_url, envelope.viewport_width, envelope.viewport_height),
                 Credentials(envelope.credentials),

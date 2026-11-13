@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
@@ -27,6 +27,7 @@ class Job(Base):
     error: Mapped[str | None] = mapped_column(Text)
     callback_sequence: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     callback_secret: Mapped[str | None] = mapped_column(Text)
+    costs_closed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 
 class OutboxEntry(Base):
