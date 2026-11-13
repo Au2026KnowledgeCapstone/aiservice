@@ -143,11 +143,75 @@ app/
 engines/
   base.py     # the Engine protocol — the contract every engine satisfies
   stub/       # deterministic engine; proves the round trip before a browser exists
+  mvp/        # the browser engine: observation, action contracts, planning, assessment
   graph/      # reserved — crawl/graph engine, not implemented yet
 ```
 
 An engine never touches the database, the filesystem, the network policy, or
 an AI SDK directly — it only sees what `engines/base.py` hands it.
+
+## The MVP browser engine
+
+`ENGINE=mvp` drives a real Chromium browser (ported from
+`BlindSpot/backend/app/services/browser/*`) through the same protocol the stub
+engine satisfies: `prepare → survey → execute (per requirement) → close`.
+Install the engine extra and Chromium before selecting it:
+
+```sh
+.venv/bin/pip install -e '.[test,engine]'
+.venv/bin/python -m playwright install chromium
+```
+
+```sh
+RUN_BROWSER_CAPABILITY_TEST=1 .venv/bin/python -m pytest -q
+```
+
+runs the opt-in real-browser suite (`tests/test_mvp_*.py`) alongside the rest.
+
+Properties worth knowing before changing anything in `engines/mvp/`:
+
+- **No configuration channel.** `JobEnvelope` carries only a target URL,
+  viewport, a flat `credentials` dict, and requirements — there is no
+  BrowserConfiguration equivalent (no service-origin allowlist, no
+  write-allowlist, no objective checks). Login reuses
+  `app/capabilities/verification.py`'s credential-key convention
+  (`username`/`email`, `password`, optional `*_selector` overrides).
+- **Read-only by default, and not configurable.** The AI planner always sends
+  `allow_writes=False` — it never proposes a form submission or any
+  business-data mutation. Criteria that inherently require a write come back
+  inconclusive for that part.
+- **Policy is target-origin-only**, plus unconditional metadata/link-local/
+  RFC1918 blocking (loopback is the one exception, for local dev/test).
+  Every request is re-checked twice: once via `context.route()` and again via
+  the CDP `Fetch` domain, because `route()` alone only sees the first request
+  of a redirect chain — confirmed directly, not assumed.
+- **No pinned-IP egress proxy.** DNS-rebinding/TOCTOU protection (the
+  reference's `proxy.py`) was deliberately not ported, matching
+  `verification.py`'s own already-reviewed pattern.
+- **The repeatability fingerprint is computed, never persisted** —
+  `engines/mvp/repeatability.py`'s `fingerprint()` has nowhere to cache a
+  plan; aiservice's operational store is job bookkeeping, not product state.
+
+### Deployment constraints
+
+- **Single process, `--workers 1`.** Jobs are scheduled in-process (A1); a
+  second worker would duplicate browser runs and callback deliveries.
+- **~2 GB memory, and raise `shm_size`** (`docker run --shm-size=1g` or the
+  platform equivalent) or Chromium will crash in odd, hard-to-diagnose ways.
+  The sandbox stays enabled — fix this with `shm_size`, not `--no-sandbox`.
+- **A private service, reachable only from BE.** It should not be exposed on
+  a public listener.
+
+### Container
+
+```sh
+docker build -t aiservice .
+docker run --shm-size=1g -p 8000:8000 --env-file .env aiservice
+```
+
+The image installs Chromium via `playwright install --with-deps` and runs as
+a non-root user. There is no Xvfb/VNC in it — live browser viewing is not in
+scope for this engine.
 
 ## Verification and handoff
 

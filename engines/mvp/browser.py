@@ -241,6 +241,7 @@ async def open_session(target: Target, credentials: Credentials) -> MvpSession:
                     service_workers="block", accept_downloads=False,
                     viewport={"width": target.viewport_width, "height": target.viewport_height},
                 )
+                context.set_default_timeout(PAGE_DEFAULT_TIMEOUT_MS)
                 try:
 
                     async def route_handler(route):
