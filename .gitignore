@@ -9,3 +9,5 @@ evidence/
 *.egg-info/
 .mcp.json
 .claude
+*.egg-info/
+.pytest_cache/

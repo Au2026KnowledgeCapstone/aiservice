@@ -174,10 +174,10 @@ class OutboxEvidenceSink:
         self.job_id = job_id
 
     async def put_text(self, body, *, kind):
-        return await self.runner.entry(self.job_id, "evidence", {"kind": kind, "text": body})
+        return await self.runner.entry(self.job_id, "evidence", {"kind": kind, "text": body, "captured_at": now().isoformat()})
 
     async def put_screenshot(self, data, *, step_index=None):
         return await self.runner.entry(self.job_id, "evidence", {
-            "kind": "screenshot", "step_index": step_index,
+            "kind": "screenshot", "step_index": step_index, "captured_at": now().isoformat(),
             "base64": base64.b64encode(data).decode("ascii"),
         })

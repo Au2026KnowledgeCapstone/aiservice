@@ -27,3 +27,15 @@ print(json.dumps([model.model_json_schema() for model in (ExecutionEvent, AIUsag
         return value
     actual = [model.model_json_schema() for model in (ExecutionEvent, UsageEvent, CostFinalization)]
     assert normalized(actual) == normalized(json.loads(result.stdout))
+
+
+def test_capability_schemas_match_backend():
+    root = os.environ.get('BLINDSPOT_BE_REPO')
+    if not root:
+        pytest.skip('Set BLINDSPOT_BE_REPO for capability contract comparison')
+    from app.capabilities.schemas import ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse
+    names = ['ExtractionRequest', 'ExtractionResponse', 'VerificationRequest', 'VerificationResponse', 'EvidenceResponse']
+    script = 'import json; from app.schemas import capabilities as s; print(json.dumps([getattr(s, n).model_json_schema() for n in ' + repr(names) + ']))'
+    result = subprocess.run([sys.executable, '-c', script], cwd=Path(root),
+        env={**os.environ, 'PYTHONPATH': str(Path(root).resolve())}, capture_output=True, text=True, check=True)
+    assert [m.model_json_schema() for m in (ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse)] == json.loads(result.stdout)
