@@ -2,6 +2,8 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import sessionmaker
@@ -40,6 +42,15 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
     application = FastAPI(title="BlindSpot AI Service", version="0.1.0", lifespan=lifespan)
     if config is not None:
         application.dependency_overrides[settings] = lambda: config
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_error(request, exc):
+        # Pydantic's default missing-field errors echo the entire input envelope.
+        # Return useful field errors without reflecting credentials or job tokens.
+        return JSONResponse(status_code=422, content={"detail": [
+            {key: error[key] for key in ("type", "loc", "msg")}
+            for error in exc.errors()
+        ]})
 
     @application.get("/health")
     @application.get("/heath", include_in_schema=False)

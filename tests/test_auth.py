@@ -82,3 +82,14 @@ def test_authenticated_invalid_envelope_returns_422(client):
     )
     assert response.status_code == 422
     assert response.json()["detail"][0]["loc"] == ["body", "viewport_width"]
+
+
+def test_validation_errors_do_not_echo_credentials(client):
+    http, _ = client
+    payload = {**PAYLOAD, "credentials": {"password": "private-password"}}
+    del payload["run_id"]
+    response = http.post("/v1/jobs", json=payload, headers={"Authorization": "Bearer service-secret"})
+    assert response.status_code == 422
+    assert "private-password" not in response.text
+    assert "callback-token" not in response.text
+    assert "run_id" in response.text
