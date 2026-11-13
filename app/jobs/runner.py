@@ -10,6 +10,8 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import Settings
 from app.jobs.models import Job, OutboxEntry, now
 from app.jobs.store import accept_job
+from app.callbacks.secrets import token_cipher
+from app.callbacks.store import execution_event
 from app.schemas.jobs import JobEnvelope, to_requirement_snapshot
 from engines.base import Credentials, Target
 from engines.registry import build_engine
@@ -48,7 +50,7 @@ class JobRunner:
 
     async def admit(self, envelope):
         async def commit_and_schedule():
-            created = await asyncio.to_thread(accept_job, self.sessions, envelope)
+            created = await asyncio.to_thread(accept_job, self.sessions, envelope, token_cipher(self.config))
             if created:
                 self.schedule(envelope)
             return created
@@ -83,6 +85,7 @@ class JobRunner:
             if job.status in ("received", "running"):
                 job.status = "cancelled"
                 job.finished_at = now()
+                execution_event(db, job_id, "job.cancelled", {"status": "cancelled"})
 
     async def db_call(self, function, *args):
         task = asyncio.create_task(asyncio.to_thread(function, *args))
@@ -102,6 +105,7 @@ class JobRunner:
                 job.started_at = now()
             else:
                 job.finished_at = now()
+            execution_event(db, job_id, f"job.{status}", {"status": status, "error": error})
 
     async def status(self, job_id, status, error=None):
         await self.db_call(self._status, job_id, status, error)
@@ -109,6 +113,8 @@ class JobRunner:
     def _write_entry(self, job_id, kind, payload, entry_id):
         with self.sessions.begin() as db:
             db.add(OutboxEntry(id=entry_id, job_id=job_id, kind=kind, payload=payload))
+            if kind == "requirement_outcome":
+                execution_event(db, job_id, "requirement.completed", payload)
 
     async def entry(self, job_id, kind, payload):
         entry_id = str(uuid.uuid4())

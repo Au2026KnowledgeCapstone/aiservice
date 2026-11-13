@@ -32,7 +32,7 @@ async def drain(app):
 
 
 async def test_stub_round_trip_and_duplicate(database):
-    app = create_app(config(), database)
+    app = create_app(config(), database, start_delivery=False)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
             payload = {**PAYLOAD, "credentials": {"password": "never-persist"}}
@@ -48,7 +48,7 @@ async def test_stub_round_trip_and_duplicate(database):
             assert job.status == "finished"
             assert job.started_at and job.finished_at
             assert job.envelope["credentials"] == {}
-            entries = db.scalars(select(OutboxEntry)).all()
+            entries = db.scalars(select(OutboxEntry).where(OutboxEntry.sequence.is_(None))).all()
             assert len(entries) == 2
             assert "never-persist" not in str(job.envelope)
             evidence = next(e for e in entries if e.kind == "evidence")
@@ -66,7 +66,7 @@ async def test_immediate_response_concurrency_and_simultaneous_duplicates(databa
             started.set()
             await release.wait()
             return await super().execute(session, requirement, sink)
-    app = create_app(config(), database, lambda *args, **kwargs: Blocking())
+    app = create_app(config(), database, lambda *args, **kwargs: Blocking(), start_delivery=False)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
             responses = await asyncio.wait_for(asyncio.gather(*[
@@ -107,7 +107,7 @@ async def test_failure_timeout_and_shutdown_cleanup(database, mode):
             await asyncio.Event().wait()
         async def close(self):
             events.append("engine.close")
-    app = create_app(config(job_timeout_seconds=1), database, lambda *args, **kwargs: Engine())
+    app = create_app(config(job_timeout_seconds=1), database, lambda *args, **kwargs: Engine(), start_delivery=False)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
             assert (await client.post("/v1/jobs", json=PAYLOAD, headers=HEADERS)).status_code == 202
@@ -125,7 +125,7 @@ async def test_failure_timeout_and_shutdown_cleanup(database, mode):
 async def test_database_unavailable_returns_503(database):
     with database.kw["bind"].begin() as conn:
         Job.__table__.drop(conn)
-    app = create_app(config(), database)
+    app = create_app(config(), database, start_delivery=False)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
             assert (await client.post("/v1/jobs", json=PAYLOAD, headers=HEADERS)).status_code == 503
@@ -139,7 +139,7 @@ async def test_prepare_failure_still_closes_engine(database):
             raise RuntimeError("private detail")
         async def close(self):
             closed.append(True)
-    app = create_app(config(), database, lambda *args, **kwargs: Broken())
+    app = create_app(config(), database, lambda *args, **kwargs: Broken(), start_delivery=False)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
             await client.post("/v1/jobs", json=PAYLOAD, headers=HEADERS)
@@ -155,7 +155,7 @@ async def test_shutdown_cancels_running_and_waiting_jobs(database):
         async def execute(self, session, requirement, sink):
             started.set()
             await asyncio.Event().wait()
-    app = create_app(config(), database, lambda *args, **kwargs: Blocking())
+    app = create_app(config(), database, lambda *args, **kwargs: Blocking(), start_delivery=False)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
             await client.post("/v1/jobs", json=PAYLOAD, headers=HEADERS)
@@ -177,7 +177,7 @@ async def test_engine_close_attempted_when_session_close_fails(database):
             return BrokenSession()
         async def close(self):
             closed.append(True)
-    app = create_app(config(), database, lambda *args, **kwargs: Engine())
+    app = create_app(config(), database, lambda *args, **kwargs: Engine(), start_delivery=False)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
             await client.post("/v1/jobs", json=PAYLOAD, headers=HEADERS)
@@ -194,13 +194,13 @@ async def test_disconnect_during_commit_still_schedules_job(database, monkeypatc
 
     committing = threading.Event()
     release = threading.Event()
-    def delayed_accept(sessions, envelope):
+    def delayed_accept(sessions, envelope, cipher=None):
         committing.set()
         if not release.wait(3):
             raise RuntimeError("Test did not release transaction")
-        return accept_job(sessions, envelope)
+        return accept_job(sessions, envelope, cipher)
     monkeypatch.setattr("app.jobs.runner.accept_job", delayed_accept)
-    app = create_app(config(), database)
+    app = create_app(config(), database, start_delivery=False)
     async with app.router.lifespan_context(app):
         envelope = JobEnvelope.model_validate({**PAYLOAD, "engine": "stub"})
         request_task = asyncio.create_task(app.state.runner.admit(envelope))
@@ -225,7 +225,7 @@ async def test_every_requirement_executes_after_single_survey(database):
         async def execute(self, session, requirement, sink):
             events.append(("execute", requirement.id))
             return await super().execute(session, requirement, sink)
-    app = create_app(config(), database, lambda *args, **kwargs: Recording())
+    app = create_app(config(), database, lambda *args, **kwargs: Recording(), start_delivery=False)
     async with app.router.lifespan_context(app):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
             requirements = [*PAYLOAD["requirements"], {**PAYLOAD["requirements"][0], "id": "req-2"}]

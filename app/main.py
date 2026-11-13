@@ -8,13 +8,14 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.auth import require_service_token
 from app.core.config import settings
+from app.callbacks.worker import DeliveryWorker
 from app.jobs.runner import JobRunner
 from app.jobs.store import JobConflict
 from app.schemas.jobs import JobEnvelope
 from engines.registry import build_engine
 
 
-def create_app(config=None, sessions=None, engine_factory=build_engine) -> FastAPI:
+def create_app(config=None, sessions=None, engine_factory=build_engine, callback_client=None, start_delivery=True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application):
         resolved = config or settings()
@@ -24,10 +25,14 @@ def create_app(config=None, sessions=None, engine_factory=build_engine) -> FastA
             db_engine = create_engine(resolved.database_url, pool_pre_ping=True)
             factory = sessionmaker(bind=db_engine, expire_on_commit=False)
         application.state.runner = JobRunner(resolved, factory, engine_factory)
+        application.state.delivery = DeliveryWorker(resolved, factory, callback_client)
+        if start_delivery:
+            await application.state.delivery.start()
         try:
             yield
         finally:
             await application.state.runner.shutdown()
+            await application.state.delivery.shutdown()
             if db_engine is not None:
                 await asyncio.to_thread(db_engine.dispose)
 

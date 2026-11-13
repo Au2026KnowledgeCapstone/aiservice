@@ -25,7 +25,7 @@ def client(tmp_path):
     config = Settings(database_url="sqlite://", service_token="service-secret", engine="stub")
     engine = create_engine(f"sqlite:///{tmp_path / 'jobs.db'}", connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
-    app = create_app(config, sessionmaker(bind=engine))
+    app = create_app(config, sessionmaker(bind=engine), start_delivery=False)
     with TestClient(app) as http:
         yield http, config
     engine.dispose()
