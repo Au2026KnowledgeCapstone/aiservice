@@ -2,15 +2,18 @@
 
 ## Contract status
 
-The three URL suffixes and top-level fields follow the comments in the local
-`BlindSpotBE/backend/main.py` callback handlers. BE currently returns 501 for
-all three; it has no executable request schema, persistence, job-token validation,
-or dispatch implementation. The nested shapes below are an explicit A1 proposal,
-validated by a test backend, and need BE agreement before deployment. No BE files
-are modified. Real BE end-to-end integration remains blocked on those handlers.
-Machine-readable proposed schemas are in [callback-schemas.json](callback-schemas.json).
+The wire schemas are synchronized with `BlindSpotBE/app/schemas/internal.py`
+on BE branch `feat/backend-ai-integration`. That branch persists authenticated
+callbacks and verifies cost count/digest; it no longer returns 501. The original
+Flask checkout is older and is not the integration target. Run the optional
+schema-comparison test with `BLINDSPOT_BE_REPO` pointing at that branch.
+Machine-readable schemas are in [callback-schemas.json](callback-schemas.json).
+See [the completed A1 audit](a1-compliance-audit.md) for current verification.
 
-Given callback_base_url `https://be.example/internal/v1` and run_id `run-1`, send:
+`callback_base_url` may be the BE origin (`https://be.example`), as in the
+handoff, or an existing prefix (`https://be.example/internal/v1`). Both target
+the same paths below; `/internal/v1` is appended exactly once. A reverse proxy
+path can precede `/internal/v1`.
 
 | Kind | POST path | Main fields |
 |---|---|---|
@@ -61,11 +64,12 @@ shows this behavior in a stub BE; production BE must implement it itself.
 
 Outbox insertion happens in the same transaction as the state/usage change.
 Event IDs are created once and reused for every send. Sequence allocation uses
-an atomic per-job database increment; the unique (job_id, sequence) constraint
+an atomic per-attempt database increment; the unique (job_id, attempt, sequence) constraint
 prevents collisions. All callback kinds share this order; execution-event
 sequence numbers can have gaps occupied by usage/finalization messages.
 
-Delivery claims the earliest undelivered callback for each job using a lease
+Delivery claims the earliest undelivered callback for each job using PostgreSQL
+`FOR UPDATE SKIP LOCKED` plus a conditional lease
 and conditional update. Only one lease owner can acknowledge it. No database
 transaction is held while sending HTTP. Attempts increment before network I/O.
 Process termination before acknowledgment results in redelivery after lease
@@ -99,3 +103,15 @@ The first new migration removes legacy plaintext callback_token values. Old
 jobs have no encrypted token and need a new dispatch/new job_id to authenticate
 new callbacks. Legacy outbox evidence/outcomes have null sequence and are not
 sent by the callback worker. Do not reclassify them as wire callbacks.
+
+## Execution attempts versus delivery retries
+
+Every A1 admitted immutable job runs once with execution `attempt=1`. Repeated
+HTTP dispatches do not create another execution. An intentional BE rerun creates
+a new run and job ID. The allocator and uniqueness constraint explicitly scope
+sequences to `(job_id, attempt)`; increasing the execution attempt starts sequence
+1, and moving backwards is rejected. The drainer orders by attempt then sequence.
+Outbox `attempts` counts HTTP sends and never changes the execution attempt or
+sequence. A higher-attempt producer is tested in isolation; there is no automatic
+engine retry API or multi-attempt cost ledger in A1. BE explicitly rejects such
+attempts on an existing run and requires a new run/job for a product rerun.

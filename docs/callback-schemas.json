@@ -1,25 +1,39 @@
 {
-  "contract_status": "A1 proposal; BE callback implementation pending",
+  "contract_status": "A1 synchronized with BlindSpotBE feat/backend-ai-integration",
   "execution_event": {
+    "additionalProperties": false,
     "properties": {
       "event_id": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Event Id",
         "type": "string"
       },
       "job_id": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Job Id",
         "type": "string"
       },
       "attempt": {
         "default": 1,
+        "minimum": 1,
         "title": "Attempt",
         "type": "integer"
       },
       "sequence": {
+        "exclusiveMinimum": 0,
         "title": "Sequence",
         "type": "integer"
       },
       "type": {
+        "enum": [
+          "job.running",
+          "job.finished",
+          "job.failed",
+          "job.cancelled",
+          "requirement.completed"
+        ],
         "title": "Type",
         "type": "string"
       },
@@ -29,6 +43,7 @@
         "type": "string"
       },
       "schema_version": {
+        "const": 1,
         "default": 1,
         "title": "Schema Version",
         "type": "integer"
@@ -51,61 +66,117 @@
     "type": "object"
   },
   "ai_usage": {
+    "$defs": {
+      "Tokens": {
+        "additionalProperties": false,
+        "properties": {
+          "reserved_input": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reserved Input"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output"
+          }
+        },
+        "title": "Tokens",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
     "properties": {
       "usage_id": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Usage Id",
         "type": "string"
       },
       "event_id": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Event Id",
         "type": "string"
       },
       "revision": {
+        "maximum": 2,
+        "minimum": 1,
         "title": "Revision",
         "type": "integer"
       },
       "cost_session_id": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Cost Session Id",
         "type": "string"
       },
       "job_id": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Job Id",
         "type": "string"
       },
       "attempt": {
         "default": 1,
+        "minimum": 1,
         "title": "Attempt",
         "type": "integer"
       },
       "provider": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Provider",
         "type": "string"
       },
       "model": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Model",
         "type": "string"
       },
       "operation": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Operation",
         "type": "string"
       },
       "tokens": {
-        "additionalProperties": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "title": "Tokens",
-        "type": "object"
+        "$ref": "#/$defs/Tokens"
       },
       "amount": {
         "anyOf": [
           {
+            "minimum": 0.0,
             "type": "number"
           },
           {
@@ -119,6 +190,7 @@
         "title": "Amount"
       },
       "currency": {
+        "const": "USD",
         "default": "USD",
         "title": "Currency",
         "type": "string"
@@ -159,25 +231,33 @@
     "type": "object"
   },
   "cost_finalization": {
+    "additionalProperties": false,
     "properties": {
       "event_id": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Event Id",
         "type": "string"
       },
       "cost_session_id": {
+        "maxLength": 128,
+        "minLength": 1,
         "title": "Cost Session Id",
         "type": "string"
       },
       "revision": {
+        "const": 1,
         "default": 1,
         "title": "Revision",
         "type": "integer"
       },
       "final_usage_count": {
+        "minimum": 0,
         "title": "Final Usage Count",
         "type": "integer"
       },
       "final_usage_digest": {
+        "pattern": "^[0-9a-f]{64}$",
         "title": "Final Usage Digest",
         "type": "string"
       },
