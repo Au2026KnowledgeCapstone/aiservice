@@ -11,3 +11,7 @@ class PolicyDenied(EngineError):
 
 class ActionContractError(EngineError):
     """A proposed action does not compile against the current observation."""
+
+
+class StaleElementError(EngineError):
+    """An observed control changed or became ambiguous; a new observation is required."""
