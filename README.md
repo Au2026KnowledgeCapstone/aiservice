@@ -12,13 +12,25 @@ Unknown values fail at startup.
 
 ## Running
 
+From the repository root:
+
 ```sh
-python3.12 -m venv .venv
-.venv/bin/pip install -e '.[test]'
-.venv/bin/python -m pytest -q
+make init
 ```
 
-Copy `.env.example` to `.env` and adjust as needed.
+`make init` creates `.venv` if needed, installs the test and browser extras,
+installs Playwright Chromium, and copies `.env.example` only when `.env` does
+not already exist. Set `DATABASE_URL` to a reachable PostgreSQL database and
+set a nonempty `SERVICE_TOKEN` (use the same value in BE). Then initialize the
+aiservice schema and start the single-worker API:
+
+```sh
+make migrate
+make run
+```
+
+The API listens on `http://127.0.0.1:8001`; check `http://127.0.0.1:8001/health`.
+`make run` does not migrate the database automatically.
 
 ## Service authentication
 
