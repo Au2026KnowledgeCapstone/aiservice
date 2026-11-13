@@ -15,7 +15,18 @@ _http_url = TypeAdapter(HttpUrl)
 
 
 def _validate_http_url(value: str) -> str:
-    _http_url.validate_python(value)
+    parsed = _http_url.validate_python(value)
+    if value != value.strip() or any(ord(character) < 32 for character in value):
+        raise ValueError("URL must not contain surrounding whitespace or control characters")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Supply credentials separately, not in URLs")
+    return value
+
+
+def _validate_callback_prefix(value: str) -> str:
+    parsed = _http_url.validate_python(value)
+    if parsed.query is not None or parsed.fragment is not None:
+        raise ValueError("Callback base URL must be a path prefix without a query or fragment")
     return value
 
 
@@ -46,7 +57,7 @@ class JobEnvelope(BaseModel):
     viewport_height: PositiveDimension = 1080
     credentials: dict[str, str] = Field(default_factory=dict, repr=False)
     requirements: list[RequirementSpec] = Field(min_length=1)
-    callback_base_url: HttpUrlString  # where to POST results
+    callback_base_url: Annotated[HttpUrlString, AfterValidator(_validate_callback_prefix)]
     callback_token: NonBlank = Field(repr=False)  # job-scoped token
 
 

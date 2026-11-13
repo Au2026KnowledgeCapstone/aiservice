@@ -94,3 +94,15 @@ def test_url_strings_are_preserved_for_storage():
     stored = envelope.model_dump(mode="json")
     assert stored["target_url"] == REALISTIC_PAYLOAD["target_url"]
     assert stored["callback_base_url"] == REALISTIC_PAYLOAD["callback_base_url"]
+
+
+@pytest.mark.parametrize("field,value", [
+    ("target_url", "https://user:secret@example.test"),
+    ("callback_base_url", "https://be.test/internal/v1?token=secret"),
+    ("callback_base_url", "https://be.test/internal/v1#fragment"),
+    ("callback_base_url", " https://be.test"),
+    ("target_url", "https://example.test/\npath"),
+])
+def test_unsafe_or_ambiguous_urls_are_rejected(field, value):
+    with pytest.raises(ValidationError):
+        JobEnvelope.model_validate({**REALISTIC_PAYLOAD, field: value})

@@ -123,3 +123,18 @@ os._exit(17)
     entry = worker.claim()
     assert entry["id"] == ids[0]
     assert entry["attempts"] == 2
+
+
+async def test_invalid_legacy_url_is_recorded_without_stopping_worker(database):
+    ids = seed(database, 1)
+    from app.jobs.models import Job
+    with database.begin() as db:
+        job = db.get(Job, "job-1")
+        job.envelope = {**job.envelope, "callback_base_url": "http://bad\nhost"}
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200))) as client:
+        worker = DeliveryWorker(config(), database, client)
+        assert await worker.deliver_once()
+    with database() as db:
+        row = db.get(OutboxEntry, ids[0])
+        assert row.failed_at
+        assert row.last_error == "InvalidCallbackURL"

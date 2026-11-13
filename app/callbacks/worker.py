@@ -95,7 +95,10 @@ class DeliveryWorker:
         except Exception:
             await asyncio.to_thread(self.acknowledge, entry, "CallbackTokenDecryptionFailed")
             return True
-        url = (entry["base_url"].rstrip("/") + "/runs/" + quote(entry["run_id"], safe="")
+        run_segment = quote(entry["run_id"], safe="")
+        if run_segment in (".", ".."):
+            run_segment = run_segment.replace(".", "%2E")
+        url = (entry["base_url"].rstrip("/") + "/runs/" + run_segment
                + "/" + CALLBACK_ROUTES[entry["kind"]])
         try:
             response = await self.client.post(
@@ -104,6 +107,9 @@ class DeliveryWorker:
             )
         except httpx.TransportError as exc:
             await asyncio.to_thread(self.acknowledge, entry, type(exc).__name__, True)
+            return True
+        except httpx.InvalidURL:
+            await asyncio.to_thread(self.acknowledge, entry, "InvalidCallbackURL")
             return True
         code = response.status_code
         if 200 <= code < 300:
