@@ -15,6 +15,12 @@ class Settings(BaseModel):
     service_token: str = Field(default="", repr=False)  # BE presents this on POST /v1/jobs.
     max_concurrent_jobs: int = Field(default=1, ge=1)
     job_timeout_seconds: int = Field(default=1800, ge=1)
+    callback_encryption_key: str = Field(default="", repr=False)
+    callback_poll_seconds: float = Field(default=1.0, gt=0)
+    callback_timeout_seconds: float = Field(default=10.0, gt=0)
+    callback_lease_seconds: float = Field(default=30.0, gt=0)
+    callback_backoff_seconds: float = Field(default=1.0, gt=0)
+    callback_backoff_max_seconds: float = Field(default=300.0, gt=0)
 
 
 def _settings_from_sources(*sources: dict) -> Settings:

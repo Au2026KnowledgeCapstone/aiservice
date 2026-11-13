@@ -1,0 +1,280 @@
+{
+  "contract_status": "A1 synchronized with BlindSpotBE feat/backend-ai-integration",
+  "execution_event": {
+    "additionalProperties": false,
+    "properties": {
+      "event_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Event Id",
+        "type": "string"
+      },
+      "job_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Job Id",
+        "type": "string"
+      },
+      "attempt": {
+        "default": 1,
+        "minimum": 1,
+        "title": "Attempt",
+        "type": "integer"
+      },
+      "sequence": {
+        "exclusiveMinimum": 0,
+        "title": "Sequence",
+        "type": "integer"
+      },
+      "type": {
+        "enum": [
+          "job.running",
+          "job.finished",
+          "job.failed",
+          "job.cancelled",
+          "requirement.completed"
+        ],
+        "title": "Type",
+        "type": "string"
+      },
+      "occurred_at": {
+        "format": "date-time",
+        "title": "Occurred At",
+        "type": "string"
+      },
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "payload": {
+        "additionalProperties": true,
+        "title": "Payload",
+        "type": "object"
+      }
+    },
+    "required": [
+      "event_id",
+      "job_id",
+      "sequence",
+      "type",
+      "occurred_at",
+      "payload"
+    ],
+    "title": "ExecutionEvent",
+    "type": "object"
+  },
+  "ai_usage": {
+    "$defs": {
+      "Tokens": {
+        "additionalProperties": false,
+        "properties": {
+          "reserved_input": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reserved Input"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Input"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Output"
+          }
+        },
+        "title": "Tokens",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "properties": {
+      "usage_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Usage Id",
+        "type": "string"
+      },
+      "event_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Event Id",
+        "type": "string"
+      },
+      "revision": {
+        "maximum": 2,
+        "minimum": 1,
+        "title": "Revision",
+        "type": "integer"
+      },
+      "cost_session_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Cost Session Id",
+        "type": "string"
+      },
+      "job_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Job Id",
+        "type": "string"
+      },
+      "attempt": {
+        "default": 1,
+        "minimum": 1,
+        "title": "Attempt",
+        "type": "integer"
+      },
+      "provider": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Provider",
+        "type": "string"
+      },
+      "model": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Model",
+        "type": "string"
+      },
+      "operation": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Operation",
+        "type": "string"
+      },
+      "tokens": {
+        "$ref": "#/$defs/Tokens"
+      },
+      "amount": {
+        "anyOf": [
+          {
+            "minimum": 0.0,
+            "type": "number"
+          },
+          {
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Amount"
+      },
+      "currency": {
+        "const": "USD",
+        "default": "USD",
+        "title": "Currency",
+        "type": "string"
+      },
+      "status": {
+        "enum": [
+          "reserved",
+          "succeeded",
+          "failed",
+          "unknown"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "timestamps": {
+        "additionalProperties": {
+          "format": "date-time",
+          "type": "string"
+        },
+        "title": "Timestamps",
+        "type": "object"
+      }
+    },
+    "required": [
+      "usage_id",
+      "event_id",
+      "revision",
+      "cost_session_id",
+      "job_id",
+      "provider",
+      "model",
+      "operation",
+      "tokens",
+      "status",
+      "timestamps"
+    ],
+    "title": "UsageEvent",
+    "type": "object"
+  },
+  "cost_finalization": {
+    "additionalProperties": false,
+    "properties": {
+      "event_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Event Id",
+        "type": "string"
+      },
+      "cost_session_id": {
+        "maxLength": 128,
+        "minLength": 1,
+        "title": "Cost Session Id",
+        "type": "string"
+      },
+      "revision": {
+        "const": 1,
+        "default": 1,
+        "title": "Revision",
+        "type": "integer"
+      },
+      "final_usage_count": {
+        "minimum": 0,
+        "title": "Final Usage Count",
+        "type": "integer"
+      },
+      "final_usage_digest": {
+        "pattern": "^[0-9a-f]{64}$",
+        "title": "Final Usage Digest",
+        "type": "string"
+      },
+      "closed_at": {
+        "format": "date-time",
+        "title": "Closed At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "event_id",
+      "cost_session_id",
+      "final_usage_count",
+      "final_usage_digest",
+      "closed_at"
+    ],
+    "title": "CostFinalization",
+    "type": "object"
+  }
+}

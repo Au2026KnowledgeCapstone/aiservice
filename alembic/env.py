@@ -3,6 +3,7 @@ from alembic import context
 from app.core.config import settings
 from app.core.db import Base, get_engine
 from app.jobs import models  # noqa: F401 — registers tables on Base.metadata
+from app import provider  # noqa: F401 — registers AI usage ledger
 
 
 def migrate(connection):
