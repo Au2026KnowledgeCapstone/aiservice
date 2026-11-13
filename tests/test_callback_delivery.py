@@ -97,3 +97,29 @@ async def test_two_workers_cannot_claim_same_event(database):
     workers = [DeliveryWorker(config(), database), DeliveryWorker(config(), database)]
     claims = await asyncio.gather(*(asyncio.to_thread(w.claim) for w in workers))
     assert sum(c is not None for c in claims) == 1
+
+
+def test_process_exit_keeps_claim_and_message_for_recovery(database):
+    import subprocess
+    import sys
+    ids = seed(database, 1)
+    url = str(database.kw["bind"].url)
+    script = '''
+import os, sys
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from app.callbacks.worker import DeliveryWorker
+from app.core.config import Settings
+engine = create_engine(sys.argv[1])
+worker = DeliveryWorker(Settings(database_url=sys.argv[1], service_token="secret"), sessionmaker(bind=engine))
+assert worker.claim() is not None
+os._exit(17)
+'''
+    process = subprocess.run([sys.executable, "-c", script, url], capture_output=True, timeout=10)
+    assert process.returncode == 17, process.stderr.decode()
+    worker = DeliveryWorker(config(), database)
+    assert worker.claim() is None
+    ready(database)
+    entry = worker.claim()
+    assert entry["id"] == ids[0]
+    assert entry["attempts"] == 2
