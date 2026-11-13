@@ -163,3 +163,12 @@ See [the completed A1 audit](docs/a1-compliance-audit.md),
 [A2 evidence proposal](docs/a2-evidence-design.md), and
 [cost/RAG investigation](docs/ai-cost-and-rag.md). A2 cloud uploads, video,
 retrieval, and real model integrations are intentionally outside A1.
+
+## Backend capability extensions
+
+This branch additionally implements authenticated document extraction, configured
+browser login verification and job-bound evidence retrieval. These are explicit
+extensions beyond A1. See [backend capabilities](docs/backend-capabilities.md)
+for configuration, idempotency, private-network policy and opt-in browser tests.
+The A1 stub engine remains unchanged; a configured login verifier is separate
+from the future business-flow engine.
