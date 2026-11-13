@@ -20,6 +20,67 @@ python3.12 -m venv .venv
 
 Copy `.env.example` to `.env` and adjust as needed.
 
+## Service authentication
+
+Set a nonempty `SERVICE_TOKEN` in `.env` and restart the API after changing it.
+BlindSpotBE must send `Authorization: Bearer <SERVICE_TOKEN>` on
+`POST /v1/jobs`. Missing or invalid credentials return `401` with a Bearer
+challenge. An empty or whitespace-only configured token disables job intake
+with `503`. Health checks at `/health` (and the `/heath` alias) remain public.
+
+The job endpoint commits a new job before returning `202 Accepted` with
+`{"job_id":"job-1","run_id":"run-1","duplicate":false}`. Execution runs in
+an `asyncio` background task; the HTTP response does not wait for the engine.
+An identical retry returns `202` with `duplicate:true` and never starts a
+second task. Reusing an ID with a changed stored envelope returns `409`.
+Credentials are excluded from persistence and duplicate comparisons, so changing
+only credentials does not rerun a job. Database failures return `503`.
+
+Job envelopes require nonblank job/run IDs (up to 64 characters), a nonblank
+callback token, HTTP(S) target and callback URLs, and positive integer viewport
+dimensions. `engine` may be `mvp`, `graph`, `stub`, or omitted/null to use
+`ENGINE`; the MVP and graph implementations are still pending. A job must
+contain at least one requirement with a nonblank ID/title and at least one
+criterion with a nonblank ID/text. Requirement descriptions may be empty.
+Invalid envelopes return `422`.
+
+## Running job intake
+
+Apply migrations, set `ENGINE=stub` and a nonempty `SERVICE_TOKEN` in `.env`,
+then start the API:
+
+```sh
+.venv/bin/uvicorn app.main:app --reload
+```
+
+Use `/docs` to try authenticated requests, or submit a job from a shell where
+`SERVICE_TOKEN` is set to the same value as the server:
+
+```sh
+curl -i http://127.0.0.1:8000/v1/jobs \
+  -H "Authorization: Bearer ${SERVICE_TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d '{"job_id":"job-1","run_id":"run-1","target_url":"https://example.test","requirements":[{"id":"req-1","title":"Checkout","description":"Verify checkout","criteria":[{"id":"c1","text":"Checkout succeeds"}]}],"callback_base_url":"https://backend.test/internal/v1","callback_token":"example-callback-token"}'
+```
+
+`MAX_CONCURRENT_JOBS` limits execution per process. Waiting jobs remain
+`received`; active jobs become `running`. Successful execution becomes
+`finished`, including stub runs whose criterion verdicts are inconclusive.
+Exceptions or `JOB_TIMEOUT_SECONDS` expiry produce `failed`; graceful shutdown
+cancels queued and running tasks and records `cancelled`. Both session and engine
+cleanup are attempted, with a five-second bound per close operation.
+
+Evidence and requirement outcomes are retained in `outbox` (screenshots as
+base64). Callback delivery/retries need the agreed BlindSpotBE integration
+contract and are not implemented here. No AI provider or real browser engine
+is configured yet; selecting `mvp` or `graph` currently produces a failed job.
+
+Tasks are process-local. Abrupt process termination can leave `received` or
+`running` records; automatic restart recovery is not implemented because
+credentials exist only in memory. Existing IDs are never automatically rerun.
+Use one worker when a service-wide concurrency limit is required. The database
+primary key still prevents duplicate acceptance across workers.
+
 ## Operational database
 
 Set `DATABASE_URL` in `.env` to a PostgreSQL database owned by this service,
@@ -55,7 +116,10 @@ pg_ctl -D .local/postgres stop
 
 ```
 app/
-  core/       # configuration (the ENGINE flag), logging, service auth
+  main.py     # FastAPI endpoints and lifespan
+  core/       # configuration, database access, service auth
+  jobs/       # persistence, background runner, operational models
+  schemas/    # validated job envelopes
 engines/
   base.py     # the Engine protocol — the contract every engine satisfies
   stub/       # deterministic engine; proves the round trip before a browser exists

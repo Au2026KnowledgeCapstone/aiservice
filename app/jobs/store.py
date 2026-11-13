@@ -1,5 +1,27 @@
 from app.jobs.models import Job
 from app.schemas.jobs import JobEnvelope
+from sqlalchemy.exc import IntegrityError
+
+
+class JobConflict(Exception):
+    pass
+
+
+def accept_job(sessions, envelope: JobEnvelope) -> bool:
+    """Commit before scheduling. The primary key arbitrates concurrent requests."""
+    with sessions() as db:
+        try:
+            db.add(new_job(envelope))
+            db.commit()
+            return True
+        except IntegrityError:
+            db.rollback()
+            existing = db.get(Job, envelope.job_id)
+            if existing is None:
+                raise
+            if existing.envelope != envelope_for_storage(envelope):
+                raise JobConflict from None
+            return False
 
 
 def envelope_for_storage(envelope: JobEnvelope) -> dict:
