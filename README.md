@@ -12,13 +12,29 @@ Unknown values fail at startup.
 
 ## Running
 
+From the repository root:
+
 ```sh
-python3.12 -m venv .venv
-.venv/bin/pip install -e '.[test]'
-.venv/bin/python -m pytest -q
+make init
 ```
 
-Copy `.env.example` to `.env` and adjust as needed.
+`make init` creates `.venv` if needed, installs the test and browser extras,
+installs Playwright Chromium, and copies `.env.example` only when `.env` does
+not already exist. Set `DATABASE_URL` to a reachable PostgreSQL database and
+set a nonempty `SERVICE_TOKEN` (use the same value in BE). To enable MVP planning
+and screenshot assessment, set `AI_API_KEY` and `AI_MODEL` in `.env`; the default
+model is `gpt-4o-mini`. `AI_API_URL` defaults to OpenAI's API and can point to an
+OpenAI-compatible HTTPS endpoint. Without an AI key, jobs can still run but
+model-dependent decisions become inconclusive. Then initialize the aiservice
+schema and start the single-worker API:
+
+```sh
+make migrate
+make run
+```
+
+The API listens on `http://127.0.0.1:8001`; check `http://127.0.0.1:8001/health`.
+`make run` does not migrate the database automatically.
 
 ## Service authentication
 
@@ -38,18 +54,23 @@ second task. Reusing an ID with a changed stored envelope returns `409`.
 Credentials are excluded from persistence and duplicate comparisons, so changing
 only credentials does not rerun a job. Database failures return `503`.
 
+`POST /v1/jobs/{job_id}/cancel` uses the same service token. It waits for the
+local job task and browser cleanup before returning the terminal job status;
+unknown job IDs return `404`. BE requests cancellation for accepted jobs and
+uses the durable `job.cancelled` callback as the final run status.
+
 Job envelopes require nonblank job/run IDs (up to 64 characters), a nonblank
 callback token, HTTP(S) target and callback URLs, and positive integer viewport
 dimensions. `engine` may be `mvp`, `graph`, `stub`, or omitted/null to use
-`ENGINE`; the MVP and graph implementations are still pending. A job must
+`ENGINE`. `mvp` drives Chromium; `graph` is reserved and cannot execute yet. A job must
 contain at least one requirement with a nonblank ID/title and at least one
 criterion with a nonblank ID/text. Requirement descriptions may be empty.
 Invalid envelopes return `422`.
 
 ## Running job intake
 
-Apply migrations, set `ENGINE=stub` and a nonempty `SERVICE_TOKEN` in `.env`,
-then start the API:
+Apply migrations and set a nonempty `SERVICE_TOKEN` in `.env`. Install the
+`engine` extra and Chromium for `ENGINE=mvp`, then start the API:
 
 ```sh
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 1
@@ -59,7 +80,7 @@ Use `/docs` to try authenticated requests, or submit a job from a shell where
 `SERVICE_TOKEN` is set to the same value as the server:
 
 ```sh
-curl -i http://127.0.0.1:8000/v1/jobs \
+curl -i http://127.0.0.1:8001/v1/jobs \
   -H "Authorization: Bearer ${SERVICE_TOKEN}" \
   -H 'Content-Type: application/json' \
   -d '{"job_id":"job-1","run_id":"run-1","target_url":"https://example.test","requirements":[{"id":"req-1","title":"Checkout","description":"Verify checkout","criteria":[{"id":"c1","text":"Checkout succeeds"}]}],"callback_base_url":"https://backend.test/internal/v1","callback_token":"example-callback-token"}'
@@ -76,14 +97,17 @@ Evidence and requirement outcomes are retained in `outbox` (screenshots as
 base64). Execution, metered usage, and cost-finalization callbacks are persisted
 before delivery and sent by a leased, ordered outbox worker. Temporary failures
 retry with exponential backoff; permanent rejections block later callbacks for
-that job. See [the callback contract](docs/callback-contract.md). The BE integration branch implements authenticated callback ingestion. The
-stub-backend round trip and an opt-in real BE HTTP round trip are tested without
-the frontend. Use the matching integration branches in both repositories.
+that job. See [the callback contract](docs/callback-contract.md). BlindSpotBE
+implements authenticated callback ingestion. The stub-backend round trip and an
+opt-in real BE HTTP round trip are tested without the frontend.
 
 The metered provider writes a usage reservation before a model call and a final
-usage revision afterward. Missing token counts/costs remain null. A1 includes
-NullProvider and fake test transports only; no real AI SDK integration or
-browser engine is configured. Selecting `mvp` or `graph` produces a failed job.
+usage revision afterward. Missing token counts/costs remain null. The MVP uses
+OpenAI-compatible structured JSON output for planning and assessment, including
+browser screenshots. `AI_TIMEOUT_SECONDS` bounds each model request. Calls are
+not retried; token counts are recorded when returned, while dollar cost remains
+unknown because no pricing is configured. Selecting `graph` still produces a
+failed job.
 
 Tasks are process-local. Abrupt process termination can leave `received` or
 `running` records because credentials exist only in memory. Existing IDs are
@@ -143,11 +167,75 @@ app/
 engines/
   base.py     # the Engine protocol — the contract every engine satisfies
   stub/       # deterministic engine; proves the round trip before a browser exists
+  mvp/        # the browser engine: observation, action contracts, planning, assessment
   graph/      # reserved — crawl/graph engine, not implemented yet
 ```
 
 An engine never touches the database, the filesystem, the network policy, or
 an AI SDK directly — it only sees what `engines/base.py` hands it.
+
+## The MVP browser engine
+
+`ENGINE=mvp` drives a real Chromium browser (ported from
+`BlindSpot/backend/app/services/browser/*`) through the same protocol the stub
+engine satisfies: `prepare → survey → execute (per requirement) → close`.
+Install the engine extra and Chromium before selecting it:
+
+```sh
+.venv/bin/pip install -e '.[test,engine]'
+.venv/bin/python -m playwright install chromium
+```
+
+```sh
+RUN_BROWSER_CAPABILITY_TEST=1 .venv/bin/python -m pytest -q
+```
+
+runs the opt-in real-browser suite (`tests/test_mvp_*.py`) alongside the rest.
+
+Properties worth knowing before changing anything in `engines/mvp/`:
+
+- **No configuration channel.** `JobEnvelope` carries only a target URL,
+  viewport, a flat `credentials` dict, and requirements — there is no
+  BrowserConfiguration equivalent (no service-origin allowlist, no
+  write-allowlist, no objective checks). Login reuses
+  `app/capabilities/verification.py`'s credential-key convention
+  (`username`/`email`, `password`, optional `*_selector` overrides).
+- **Read-only by default, and not configurable.** The AI planner always sends
+  `allow_writes=False` — it never proposes a form submission or any
+  business-data mutation. Criteria that inherently require a write come back
+  inconclusive for that part.
+- **Policy is target-origin-only**, plus unconditional metadata/link-local/
+  RFC1918 blocking (loopback is the one exception, for local dev/test).
+  Every request is re-checked twice: once via `context.route()` and again via
+  the CDP `Fetch` domain, because `route()` alone only sees the first request
+  of a redirect chain — confirmed directly, not assumed.
+- **No pinned-IP egress proxy.** DNS-rebinding/TOCTOU protection (the
+  reference's `proxy.py`) was deliberately not ported, matching
+  `verification.py`'s own already-reviewed pattern.
+- **The repeatability fingerprint is computed, never persisted** —
+  `engines/mvp/repeatability.py`'s `fingerprint()` has nowhere to cache a
+  plan; aiservice's operational store is job bookkeeping, not product state.
+
+### Deployment constraints
+
+- **Single process, `--workers 1`.** Jobs are scheduled in-process (A1); a
+  second worker would duplicate browser runs and callback deliveries.
+- **~2 GB memory, and raise `shm_size`** (`docker run --shm-size=1g` or the
+  platform equivalent) or Chromium will crash in odd, hard-to-diagnose ways.
+  The sandbox stays enabled — fix this with `shm_size`, not `--no-sandbox`.
+- **A private service, reachable only from BE.** It should not be exposed on
+  a public listener.
+
+### Container
+
+```sh
+docker build -t aiservice .
+docker run --shm-size=1g -p 8000:8000 --env-file .env aiservice
+```
+
+The image installs Chromium via `playwright install --with-deps` and runs as
+a non-root user. There is no Xvfb/VNC in it — live browser viewing is not in
+scope for this engine.
 
 ## Verification and handoff
 

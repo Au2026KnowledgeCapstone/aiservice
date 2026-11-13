@@ -29,6 +29,10 @@ class Settings(BaseModel):
     callback_lease_seconds: float = Field(default=30.0, gt=0)
     callback_backoff_seconds: float = Field(default=1.0, gt=0)
     callback_backoff_max_seconds: float = Field(default=300.0, gt=0)
+    ai_api_url: str = "https://api.openai.com/v1"
+    ai_api_key: str = Field(default="", repr=False)
+    ai_model: str = "gpt-4o-mini"
+    ai_timeout_seconds: float = Field(default=90, ge=1, le=180)
 
 
 def _settings_from_sources(*sources: dict) -> Settings:

@@ -16,12 +16,13 @@ from app.jobs.store import JobConflict, job_status
 from app.schemas.jobs import JobEnvelope
 from engines.registry import build_engine
 from app.provider import MeteredProvider
+from app.ai_transport import OpenAITransport
 from app.capabilities.service import Capabilities
 from app.capabilities.schemas import ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse
 from app.capabilities.errors import CapabilityError
 
 
-def create_app(config=None, sessions=None, engine_factory=build_engine, callback_client=None, start_delivery=True, provider_factory=MeteredProvider, capabilities_factory=Capabilities) -> FastAPI:
+def create_app(config=None, sessions=None, engine_factory=build_engine, callback_client=None, start_delivery=True, provider_factory=None, capabilities_factory=Capabilities) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application):
         resolved = config or settings()
@@ -31,7 +32,13 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
             db_engine = create_engine(resolved.database_url, pool_pre_ping=True)
             factory = sessionmaker(bind=db_engine, expire_on_commit=False)
         application.state.capabilities = capabilities_factory(resolved, factory)
-        application.state.runner = JobRunner(resolved, factory, engine_factory, provider_factory)
+        resolved_provider_factory = provider_factory
+        if resolved_provider_factory is None:
+            transport = OpenAITransport(resolved) if resolved.ai_api_key else None
+            resolved_provider_factory = lambda provider_sessions, job_id: MeteredProvider(
+                provider_sessions, job_id, transport,
+            )
+        application.state.runner = JobRunner(resolved, factory, engine_factory, resolved_provider_factory)
         application.state.capabilities.semaphore = application.state.runner.semaphore
         application.state.delivery = DeliveryWorker(resolved, factory, callback_client)
         if start_delivery:
@@ -98,6 +105,14 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
         current = await asyncio.to_thread(job_status, runner.sessions, envelope.job_id)
         return {"job_id": envelope.job_id, "run_id": envelope.run_id,
                 "duplicate": not created, "status": current}
+
+    @application.post("/v1/jobs/{job_id}/cancel", dependencies=[Depends(require_service_token)])
+    async def cancel_job(job_id: str, request: Request) -> dict:
+        runner = request.app.state.runner
+        status = await runner.cancel(job_id)
+        if status is None:
+            raise HTTPException(404, "Job not found.")
+        return {"job_id": job_id, "status": status}
 
     return application
 

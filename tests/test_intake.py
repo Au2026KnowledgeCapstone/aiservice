@@ -42,6 +42,8 @@ async def test_stub_round_trip_and_duplicate(database):
             duplicate = await client.post("/v1/jobs", json=payload, headers=HEADERS)
             assert duplicate.json()["duplicate"] is True
             assert duplicate.json()["status"] == "finished"
+            late_cancel = await client.post(f"/v1/jobs/{PAYLOAD['job_id']}/cancel", headers=HEADERS)
+            assert late_cancel.json()["status"] == "finished"
             conflict = await client.post("/v1/jobs", json={**payload, "run_id": "other"}, headers=HEADERS)
             assert conflict.status_code == 409
         with database() as db:
@@ -166,6 +168,62 @@ async def test_shutdown_cancels_running_and_waiting_jobs(database):
         assert db.get(Job, "job-1").status == "cancelled"
         assert db.get(Job, "waiting").status == "cancelled"
     assert not app.state.runner.tasks
+
+
+async def test_authenticated_cancel_stops_running_and_queued_jobs(database):
+    started = asyncio.Event()
+    class Blocking(StubEngine):
+        async def execute(self, session, requirement, sink):
+            started.set()
+            await asyncio.Event().wait()
+
+    app = create_app(config(), database, lambda *args, **kwargs: Blocking(), start_delivery=False)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            assert (await client.post("/v1/jobs", json=PAYLOAD, headers=HEADERS)).status_code == 202
+            await asyncio.wait_for(started.wait(), 2)
+            queued = {**PAYLOAD, "job_id": "queued-job"}
+            assert (await client.post("/v1/jobs", json=queued, headers=HEADERS)).status_code == 202
+            assert (await client.post("/v1/jobs/queued-job/cancel")).status_code == 401
+            assert (await client.post("/v1/jobs/missing/cancel", headers=HEADERS)).status_code == 404
+            for job_id in ("queued-job", PAYLOAD["job_id"]):
+                response = await client.post(f"/v1/jobs/{job_id}/cancel", headers=HEADERS)
+                assert response.status_code == 200
+                assert response.json() == {"job_id": job_id, "status": "cancelled"}
+                repeated = await client.post(f"/v1/jobs/{job_id}/cancel", headers=HEADERS)
+                assert repeated.json()["status"] == "cancelled"
+    with database() as db:
+        assert db.get(Job, PAYLOAD["job_id"]).status == "cancelled"
+        assert db.get(Job, "queued-job").status == "cancelled"
+
+
+async def test_cancel_waits_for_shielded_evidence_write(database):
+    import threading
+
+    entered = threading.Event()
+    release = threading.Event()
+    app = create_app(config(), database, start_delivery=False)
+    async with app.router.lifespan_context(app):
+        original = app.state.runner._write_entry
+
+        def slow_write(*args):
+            entered.set()
+            assert release.wait(3)
+            original(*args)
+
+        app.state.runner._write_entry = slow_write
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            assert (await client.post("/v1/jobs", json=PAYLOAD, headers=HEADERS)).status_code == 202
+            assert await asyncio.to_thread(entered.wait, 2)
+            cancellation = asyncio.create_task(client.post("/v1/jobs/job-1/cancel", headers=HEADERS))
+            await asyncio.sleep(0)
+            assert not cancellation.done()
+            release.set()
+            response = await asyncio.wait_for(cancellation, 3)
+            assert response.json()["status"] == "cancelled"
+    with database() as db:
+        assert db.get(Job, "job-1").status == "cancelled"
+        assert db.scalar(select(OutboxEntry).where(OutboxEntry.job_id == "job-1", OutboxEntry.kind == "evidence"))
 
 
 async def test_engine_close_attempted_when_session_close_fails(database):
