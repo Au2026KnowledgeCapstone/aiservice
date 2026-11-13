@@ -13,7 +13,7 @@ from tests.test_intake import database, config, HEADERS
 
 async def test_backend_dispatch_execution_usage_and_authenticated_callbacks(database):
     backend = StubBackend()
-    backend.unavailable = 1
+    backend.unavailable = 2
     calls = []
     class Transport:
         name = "fake"
@@ -47,7 +47,7 @@ async def test_backend_dispatch_execution_usage_and_authenticated_callbacks(data
         assert len(backend.finalizations) == 1
         assert next(iter(backend.usage.values())).amount == Decimal("0.001")
         assert next(iter(backend.usage.values())).revision == 2
-        assert backend.deliveries == 7  # 3 execution, 2 usage, 1 closure, 1 retry
+        assert backend.deliveries == 8  # 3 execution, 2 usage, 1 closure, 2 retries
         with database() as db:
             assert db.get(Job, "job-1").status == "finished"
             callbacks_in_db = db.scalars(select(OutboxEntry).where(OutboxEntry.sequence.is_not(None))).all()

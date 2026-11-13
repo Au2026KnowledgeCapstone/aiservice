@@ -41,6 +41,7 @@ async def test_stub_round_trip_and_duplicate(database):
             await drain(app)
             duplicate = await client.post("/v1/jobs", json=payload, headers=HEADERS)
             assert duplicate.json()["duplicate"] is True
+            assert duplicate.json()["status"] == "finished"
             conflict = await client.post("/v1/jobs", json={**payload, "run_id": "other"}, headers=HEADERS)
             assert conflict.status_code == 409
         with database() as db:
@@ -232,3 +233,24 @@ async def test_every_requirement_executes_after_single_survey(database):
             await client.post("/v1/jobs", json={**PAYLOAD, "requirements": requirements}, headers=HEADERS)
             await drain(app)
     assert events == [("survey", 2), ("execute", "req-1"), ("execute", "req-2")]
+
+
+async def test_two_requirements_complete_once_and_report_existing_state(database):
+    calls = []
+    class Counting(StubEngine):
+        async def execute(self, session, requirement, sink):
+            calls.append(requirement.id)
+            return await super().execute(session, requirement, sink)
+    payload = {**PAYLOAD, "requirements": [PAYLOAD["requirements"][0], {
+        "id": "req-2", "title": "Second requirement", "description": "",
+        "criteria": [{"id": "c2", "text": "Second criterion"}]}]}
+    app = create_app(config(), database, lambda *args, **kwargs: Counting(), start_delivery=False)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://test") as client:
+            assert (await client.post("/v1/jobs", json=payload, headers=HEADERS)).status_code == 202
+            await drain(app)
+            response = await client.post("/v1/jobs", json=payload, headers=HEADERS)
+            assert response.json()["status"] == "finished" and response.json()["duplicate"]
+    assert calls == ["req-1", "req-2"]
+    with database() as db:
+        assert len(db.scalars(select(Job)).all()) == 1

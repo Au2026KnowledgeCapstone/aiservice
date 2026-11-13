@@ -2,7 +2,7 @@
 
 install:
 	python3.12 -m venv .venv
-	.venv/bin/pip install -e '.[test,engine]'
+	.venv/bin/pip install -e '.[test]'
 
 test:
 	.venv/bin/python -m pytest -q

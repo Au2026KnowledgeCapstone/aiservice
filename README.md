@@ -14,7 +14,7 @@ Unknown values fail at startup.
 
 ```sh
 python3.12 -m venv .venv
-.venv/bin/pip install -e '.[test,engine]'
+.venv/bin/pip install -e '.[test]'
 .venv/bin/python -m pytest -q
 ```
 
@@ -26,12 +26,14 @@ Set a nonempty `SERVICE_TOKEN` in `.env` and restart the API after changing it.
 BlindSpotBE must send `Authorization: Bearer <SERVICE_TOKEN>` on
 `POST /v1/jobs`. Missing or invalid credentials return `401` with a Bearer
 challenge. An empty or whitespace-only configured token disables job intake
-with `503`. Health checks at `/health` (and the `/heath` alias) remain public.
+with `503`. Health checks at `/health` (and the `/heath` alias) remain public and report the
+resolved engine name alongside status.
 
 The job endpoint commits a new job before returning `202 Accepted` with
-`{"job_id":"job-1","run_id":"run-1","duplicate":false}`. Execution runs in
+`{"job_id":"job-1","run_id":"run-1","duplicate":false,"status":"received"}`. Execution runs in
 an `asyncio` background task; the HTTP response does not wait for the engine.
-An identical retry returns `202` with `duplicate:true` and never starts a
+The returned status is the persisted state at response time (it can already be
+`running` or `finished`). An identical retry returns `202` with `duplicate:true` and never starts a
 second task. Reusing an ID with a changed stored envelope returns `409`.
 Credentials are excluded from persistence and duplicate comparisons, so changing
 only credentials does not rerun a job. Database failures return `503`.
@@ -50,7 +52,7 @@ Apply migrations, set `ENGINE=stub` and a nonempty `SERVICE_TOKEN` in `.env`,
 then start the API:
 
 ```sh
-.venv/bin/uvicorn app.main:app --reload
+.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 1
 ```
 
 Use `/docs` to try authenticated requests, or submit a job from a shell where
@@ -74,9 +76,9 @@ Evidence and requirement outcomes are retained in `outbox` (screenshots as
 base64). Execution, metered usage, and cost-finalization callbacks are persisted
 before delivery and sent by a leased, ordered outbox worker. Temporary failures
 retry with exponential backoff; permanent rejections block later callbacks for
-that job. See [the callback contract](docs/callback-contract.md). The available
-BE callback handlers still return 501; production integration requires their
-implementation. The fake-backend round trip is tested without the frontend.
+that job. See [the callback contract](docs/callback-contract.md). The BE integration branch implements authenticated callback ingestion. The
+stub-backend round trip and an opt-in real BE HTTP round trip are tested without
+the frontend. Use the matching integration branches in both repositories.
 
 The metered provider writes a usage reservation before a model call and a final
 usage revision afterward. Missing token counts/costs remain null. A1 includes
@@ -90,8 +92,10 @@ job with `.venv/bin/python -m app.recovery JOB_ID`; it marks interrupted work
 failed and unresolved usage unknown, then queues cost closure. It never reruns
 a model request. Pending callbacks resume automatically after worker restart
 and lease expiry; BE must deduplicate stable event IDs.
-Use one worker when a service-wide concurrency limit is required. The database
-primary key still prevents duplicate acceptance across workers.
+Run exactly one API worker: tasks and the concurrency semaphore are process-local.
+The database primary key still prevents duplicate acceptance across workers, but
+it cannot make the execution semaphore global. Do not use multiple uvicorn or
+gunicorn workers for this A1 deployment.
 
 ## Operational database
 
@@ -103,7 +107,8 @@ then apply the schema:
 .venv/bin/alembic current
 ```
 
-The initial migration creates `jobs` and `outbox`. Run migrations before
+The initial migration creates `jobs` and `outbox`; later migrations add metering,
+PostgreSQL JSONB storage, and per-attempt callback sequencing. Run migrations before
 starting the API; table creation is not performed automatically at startup.
 
 For local development with PostgreSQL tools installed, an isolated cluster
@@ -152,7 +157,8 @@ an AI SDK directly — it only sees what `engines/base.py` hands it.
 AISERVICE_TEST_POSTGRES=1 .venv/bin/python -m pytest tests/test_postgres.py -q
 ```
 
-See [A1 implementation and environment reference](docs/a1-handoff.md),
+See [the completed A1 audit](docs/a1-compliance-audit.md),
+[A1 implementation and environment reference](docs/a1-handoff.md),
 [backend route ownership](docs/backend-route-inventory.md),
 [A2 evidence proposal](docs/a2-evidence-design.md), and
 [cost/RAG investigation](docs/ai-cost-and-rag.md). A2 cloud uploads, video,

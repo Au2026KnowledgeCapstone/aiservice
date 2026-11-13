@@ -41,3 +41,8 @@ def new_job(envelope: JobEnvelope, cipher=None) -> Job:
         engine=envelope.engine,
         callback_secret=cipher.encrypt(envelope.callback_token.encode()).decode() if cipher else None,
     )
+
+
+def job_status(sessions, job_id):
+    with sessions() as db:
+        return db.get(Job, job_id).status

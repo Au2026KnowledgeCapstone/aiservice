@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.dialects.postgresql import JSONB
 
 from app.core.db import Base
 
@@ -19,12 +20,13 @@ class Job(Base):
     job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     run_id: Mapped[str] = mapped_column(String(64), index=True)
     status: Mapped[str] = mapped_column(String(20), default="received")
-    envelope: Mapped[dict] = mapped_column(JSON)
+    envelope: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"))
     engine: Mapped[str | None] = mapped_column(String(20))
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error: Mapped[str | None] = mapped_column(Text)
+    callback_attempt: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     callback_sequence: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     callback_secret: Mapped[str | None] = mapped_column(Text)
     costs_closed: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
@@ -34,16 +36,17 @@ class OutboxEntry(Base):
     """Written before delivery is attempted. That ordering is the durability guarantee."""
 
     __tablename__ = "outbox"
-    __table_args__ = (UniqueConstraint("job_id", "sequence", name="uq_outbox_job_sequence"),)
+    __table_args__ = (UniqueConstraint("job_id", "attempt", "sequence", name="uq_outbox_job_attempt_sequence"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     job_id: Mapped[str] = mapped_column(String(64), ForeignKey("jobs.job_id", ondelete="CASCADE"), index=True)
     kind: Mapped[str] = mapped_column(String(30))
-    payload: Mapped[dict] = mapped_column(JSON)
+    payload: Mapped[dict] = mapped_column(JSON().with_variant(JSONB(), "postgresql"))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
+    attempt: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     sequence: Mapped[int | None] = mapped_column(Integer)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

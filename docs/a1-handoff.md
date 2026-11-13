@@ -1,5 +1,8 @@
 # A1 implementation handoff
 
+> Historical checkpoint: this file describes the pre-integration baseline.
+> For the current implementation and completed audit, see [A1 compliance audit](a1-compliance-audit.md).
+
 Final checkpoint date: 2026-11-13. Branch: feat/JobIntake.
 Scope confirmed by the user: aiservice only; skip contacting Vanshika/Nishitha;
 commit and push each verified major checkpoint. No PR is opened.

@@ -10,7 +10,7 @@ import uuid
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, select, text, inspect
 from sqlalchemy.orm import sessionmaker
 
 from app.callbacks.secrets import token_cipher
@@ -40,6 +40,13 @@ def test_postgres_migrations_concurrent_idempotency_and_sequence():
             alembic.attributes["connection"] = connection
             command.upgrade(alembic, "head")
             command.check(alembic)
+            command.downgrade(alembic, "base")
+            command.upgrade(alembic, "head")
+            command.check(alembic)
+            from sqlalchemy.dialects.postgresql import JSONB
+            for table, column in (("jobs", "envelope"), ("outbox", "payload"), ("ai_usage", "tokens")):
+                columns = {item["name"]: item["type"] for item in inspect(connection).get_columns(table)}
+                assert isinstance(columns[column], JSONB)
         sessions = sessionmaker(bind=engine)
         envelope = JobEnvelope.model_validate(PAYLOAD)
         cipher = token_cipher(config())
@@ -48,7 +55,7 @@ def test_postgres_migrations_concurrent_idempotency_and_sequence():
         assert accepted.count(True) == 1
         def event(_):
             with sessions.begin() as db:
-                execution_event(db, envelope.job_id, "test", {})
+                execution_event(db, envelope.job_id, "job.running", {"status": "running"})
         with ThreadPoolExecutor(max_workers=6) as pool:
             list(pool.map(event, range(6)))
         with sessions() as db:

@@ -1,5 +1,8 @@
 # Backend route ownership audit
 
+> Historical checkpoint: this file describes the pre-integration baseline.
+> For the current implementation and completed audit, see [A1 compliance audit](a1-compliance-audit.md).
+
 Reviewed the local `BlindSpotBE/backend/main.py`, its OpenAPI document, and
 `blindspottest/main.py` and semantic/runner modules on 2026-11-12.
 
