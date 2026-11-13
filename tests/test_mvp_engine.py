@@ -54,7 +54,12 @@ async def test_prepare_opens_and_close_tears_down_cleanly(local_page):
     session = await engine.prepare(Target(local_page, 1280, 800), Credentials({}))
     try:
         assert isinstance(session, MvpSession)
-        assert "Local fixture page" in await session.page.content()
+        context, page = await session.open_context()
+        try:
+            await session.open_landing(page)
+            assert "Local fixture page" in await page.content()
+        finally:
+            await context.close()
     finally:
         await session.close()
     await engine.close()
