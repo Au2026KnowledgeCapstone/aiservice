@@ -38,18 +38,23 @@ second task. Reusing an ID with a changed stored envelope returns `409`.
 Credentials are excluded from persistence and duplicate comparisons, so changing
 only credentials does not rerun a job. Database failures return `503`.
 
+`POST /v1/jobs/{job_id}/cancel` uses the same service token. It waits for the
+local job task and browser cleanup before returning the terminal job status;
+unknown job IDs return `404`. BE requests cancellation for accepted jobs and
+uses the durable `job.cancelled` callback as the final run status.
+
 Job envelopes require nonblank job/run IDs (up to 64 characters), a nonblank
 callback token, HTTP(S) target and callback URLs, and positive integer viewport
 dimensions. `engine` may be `mvp`, `graph`, `stub`, or omitted/null to use
-`ENGINE`; the MVP and graph implementations are still pending. A job must
+`ENGINE`. `mvp` drives Chromium; `graph` is reserved and cannot execute yet. A job must
 contain at least one requirement with a nonblank ID/title and at least one
 criterion with a nonblank ID/text. Requirement descriptions may be empty.
 Invalid envelopes return `422`.
 
 ## Running job intake
 
-Apply migrations, set `ENGINE=stub` and a nonempty `SERVICE_TOKEN` in `.env`,
-then start the API:
+Apply migrations and set a nonempty `SERVICE_TOKEN` in `.env`. Install the
+`engine` extra and Chromium for `ENGINE=mvp`, then start the API:
 
 ```sh
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 1
@@ -59,7 +64,7 @@ Use `/docs` to try authenticated requests, or submit a job from a shell where
 `SERVICE_TOKEN` is set to the same value as the server:
 
 ```sh
-curl -i http://127.0.0.1:8000/v1/jobs \
+curl -i http://127.0.0.1:8001/v1/jobs \
   -H "Authorization: Bearer ${SERVICE_TOKEN}" \
   -H 'Content-Type: application/json' \
   -d '{"job_id":"job-1","run_id":"run-1","target_url":"https://example.test","requirements":[{"id":"req-1","title":"Checkout","description":"Verify checkout","criteria":[{"id":"c1","text":"Checkout succeeds"}]}],"callback_base_url":"https://backend.test/internal/v1","callback_token":"example-callback-token"}'
@@ -76,14 +81,14 @@ Evidence and requirement outcomes are retained in `outbox` (screenshots as
 base64). Execution, metered usage, and cost-finalization callbacks are persisted
 before delivery and sent by a leased, ordered outbox worker. Temporary failures
 retry with exponential backoff; permanent rejections block later callbacks for
-that job. See [the callback contract](docs/callback-contract.md). The BE integration branch implements authenticated callback ingestion. The
-stub-backend round trip and an opt-in real BE HTTP round trip are tested without
-the frontend. Use the matching integration branches in both repositories.
+that job. See [the callback contract](docs/callback-contract.md). BlindSpotBE
+implements authenticated callback ingestion. The stub-backend round trip and an
+opt-in real BE HTTP round trip are tested without the frontend.
 
 The metered provider writes a usage reservation before a model call and a final
-usage revision afterward. Missing token counts/costs remain null. A1 includes
-NullProvider and fake test transports only; no real AI SDK integration or
-browser engine is configured. Selecting `mvp` or `graph` produces a failed job.
+usage revision afterward. Missing token counts/costs remain null. The MVP
+browser engine and a metered provider are implemented; selecting `graph` still
+produces a failed job.
 
 Tasks are process-local. Abrupt process termination can leave `received` or
 `running` records because credentials exist only in memory. Existing IDs are

@@ -79,11 +79,24 @@ class JobRunner:
     def _cancel_unfinished(self, job_id):
         with self.sessions.begin() as db:
             job = db.get(Job, job_id)
-            if job.status in ("received", "running"):
+            if job is not None and job.status in ("received", "running"):
                 job.status = "cancelled"
                 job.finished_at = now()
                 execution_event(db, job_id, "job.cancelled", {"status": "cancelled"})
                 finalize_costs(db, job_id)
+
+    async def cancel(self, job_id):
+        """Cancel a live job and wait for cleanup before acknowledging it."""
+        task = next((task for task, identifier in self.job_ids.items() if identifier == job_id), None)
+        if task is not None:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        # Covers cancellation before the task's first instruction and a job
+        # stranded by a previous process. A terminal result wins any race.
+        await asyncio.to_thread(self._cancel_unfinished, job_id)
+        with self.sessions() as db:
+            job = db.get(Job, job_id)
+            return job.status if job is not None else None
 
     async def db_call(self, function, *args):
         task = asyncio.create_task(asyncio.to_thread(function, *args))
@@ -97,6 +110,8 @@ class JobRunner:
     def _status(self, job_id, status, error=None):
         with self.sessions.begin() as db:
             job = db.get(Job, job_id)
+            if job.status in ("finished", "failed", "cancelled"):
+                return
             job.status = status
             job.error = error
             if status == "running":

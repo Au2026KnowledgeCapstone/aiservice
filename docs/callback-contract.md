@@ -3,10 +3,9 @@
 ## Contract status
 
 The wire schemas are synchronized with `BlindSpotBE/app/schemas/internal.py`
-on BE branch `feat/backend-ai-integration`. That branch persists authenticated
-callbacks and verifies cost count/digest; it no longer returns 501. The original
-Flask checkout is older and is not the integration target. Run the optional
-schema-comparison test with `BLINDSPOT_BE_REPO` pointing at that branch.
+on BE `main`, which persists authenticated callbacks and verifies cost
+count/digest. Run the optional schema-comparison test with `BLINDSPOT_BE_REPO`
+pointing at the current BE checkout.
 Machine-readable schemas are in [callback-schemas.json](callback-schemas.json).
 See [the completed A1 audit](a1-compliance-audit.md) for current verification.
 

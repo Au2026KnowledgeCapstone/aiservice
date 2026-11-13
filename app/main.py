@@ -99,6 +99,14 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
         return {"job_id": envelope.job_id, "run_id": envelope.run_id,
                 "duplicate": not created, "status": current}
 
+    @application.post("/v1/jobs/{job_id}/cancel", dependencies=[Depends(require_service_token)])
+    async def cancel_job(job_id: str, request: Request) -> dict:
+        runner = request.app.state.runner
+        status = await runner.cancel(job_id)
+        if status is None:
+            raise HTTPException(404, "Job not found.")
+        return {"job_id": job_id, "status": status}
+
     return application
 
 
