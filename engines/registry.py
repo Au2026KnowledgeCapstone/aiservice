@@ -3,7 +3,6 @@ from typing import Callable
 from engines.base import AIProvider, Engine
 
 _UNIMPLEMENTED = {
-    "mvp": "The mvp engine lands in A4 — see the A4 handoff.",
     "graph": "The graph engine is reserved until A5 — see the A5 handoff.",
 }
 
@@ -12,6 +11,12 @@ def _stub_factory(*, provider: AIProvider) -> Engine:
     from engines.stub.engine import StubEngine
 
     return StubEngine()
+
+
+def _mvp_factory(*, provider: AIProvider) -> Engine:
+    from engines.mvp.engine import MvpEngine
+
+    return MvpEngine(provider=provider)
 
 
 def _unimplemented_factory(name: str) -> Callable[..., Engine]:
@@ -23,7 +28,7 @@ def _unimplemented_factory(name: str) -> Callable[..., Engine]:
 
 _FACTORIES: dict[str, Callable[..., Engine]] = {
     "stub": _stub_factory,
-    "mvp": _unimplemented_factory("mvp"),
+    "mvp": _mvp_factory,
     "graph": _unimplemented_factory("graph"),
 }
 
