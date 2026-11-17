@@ -36,6 +36,23 @@ make run
 The API listens on `http://127.0.0.1:8001`; check `http://127.0.0.1:8001/health`.
 `make run` does not migrate the database automatically.
 
+## API reference
+
+With the server running, open [Swagger UI](http://127.0.0.1:8001/docs) to browse
+and try the API. [ReDoc](http://127.0.0.1:8001/redoc) is also available, and
+FastAPI serves the live OpenAPI schema at
+[/openapi.json](http://127.0.0.1:8001/openapi.json).
+
+Regenerate the committed [OpenAPI specification](docs/openapi.json) after
+changing the API:
+
+```sh
+make openapi
+```
+
+This command only imports the app and does not require a running server or
+database connection.
+
 ## Service authentication
 
 Set a nonempty `SERVICE_TOKEN` in `.env` and restart the API after changing it.
