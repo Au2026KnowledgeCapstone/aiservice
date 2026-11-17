@@ -31,6 +31,24 @@ retains originals privately, and issues user-bound five-minute downloads.
 ## Setup
 
 Apply `.venv/bin/alembic upgrade head` in aiservice's own operational database.
+
+> **Alembic owns the `aiservice` schema. The Supabase CLI does not.**
+>
+> In the shared environment this schema lives inside BE's Supabase project
+> rather than a separate database — intentional, for want of time to stand up a
+> second project. That co-location makes it tempting to manage these tables with
+> `supabase migration` alongside BE's. Do not. Every table inside the `aiservice`
+> schema is created and altered by the revisions in `alembic/versions/`, and
+> `aiservice.alembic_version` is the only record of where the schema stands.
+>
+> The two Supabase migrations named `create_aiservice_operational_schema` and
+> `grant_aiservice_schema_to_blindspot_role` are the correct exception: they
+> create the schema and grant the role, which is Supabase-level provisioning
+> rather than table DDL. Everything inside the schema is alembic's.
+>
+> Applying a table change through the Supabase CLI records a migration that has
+> no file in BE's repository and no matching alembic revision, leaving the two
+> histories disagreeing about the same schema.
 Never configure this service with BE's database URL.
 
 Document extraction:
