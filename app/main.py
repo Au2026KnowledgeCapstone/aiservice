@@ -17,12 +17,12 @@ from app.schemas.jobs import JobEnvelope
 from engines.registry import build_engine
 from app.provider import MeteredProvider
 from app.ai_transport import OpenAITransport
-from app.capabilities.service import Capabilities
-from app.capabilities.schemas import ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse
-from app.capabilities.errors import CapabilityError
+from app.operations.service import Operations
+from app.operations.schemas import ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse
+from app.operations.errors import OperationError
 
 
-def create_app(config=None, sessions=None, engine_factory=build_engine, callback_client=None, start_delivery=True, provider_factory=None, capabilities_factory=Capabilities) -> FastAPI:
+def create_app(config=None, sessions=None, engine_factory=build_engine, callback_client=None, start_delivery=True, provider_factory=None, operations_factory=Operations) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application):
         resolved = config or settings()
@@ -31,7 +31,7 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
         if factory is None:
             db_engine = create_engine(resolved.database_url, pool_pre_ping=True)
             factory = sessionmaker(bind=db_engine, expire_on_commit=False)
-        application.state.capabilities = capabilities_factory(resolved, factory)
+        application.state.operations = operations_factory(resolved, factory)
         resolved_provider_factory = provider_factory
         if resolved_provider_factory is None:
             transport = OpenAITransport(resolved) if resolved.ai_api_key else None
@@ -39,7 +39,7 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
                 provider_sessions, job_id, transport,
             )
         application.state.runner = JobRunner(resolved, factory, engine_factory, resolved_provider_factory)
-        application.state.capabilities.semaphore = application.state.runner.semaphore
+        application.state.operations.semaphore = application.state.runner.semaphore
         application.state.delivery = DeliveryWorker(resolved, factory, callback_client)
         if start_delivery:
             await application.state.delivery.start()
@@ -64,21 +64,21 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
             for error in exc.errors()
         ]})
 
-    @application.exception_handler(CapabilityError)
-    async def capability_error(request, exc):
+    @application.exception_handler(OperationError)
+    async def operation_error(request, exc):
         return JSONResponse(status_code=exc.status, content={"detail": exc.message})
 
     @application.post("/v1/imports", response_model=ExtractionResponse, dependencies=[Depends(require_service_token)])
     async def extract_documents(body: ExtractionRequest, request: Request):
-        return await request.app.state.capabilities.run("import", body)
+        return await request.app.state.operations.run("import", body)
 
     @application.post("/v1/environments/verify", response_model=VerificationResponse, dependencies=[Depends(require_service_token)])
     async def verify_login(body: VerificationRequest, request: Request):
-        return await request.app.state.capabilities.run("verify", body)
+        return await request.app.state.operations.run("verify", body)
 
     @application.get("/v1/jobs/{job_id}/evidence/{evidence_id}", response_model=EvidenceResponse, dependencies=[Depends(require_service_token)])
     async def retrieve_evidence(job_id: str, evidence_id: str, request: Request):
-        from app.capabilities.evidence import retrieve
+        from app.operations.evidence import retrieve
         return await asyncio.to_thread(retrieve, request.app.state.runner.sessions, job_id, evidence_id)
 
     @application.get("/health")

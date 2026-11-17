@@ -1,4 +1,4 @@
-"""Backend/aiservice capability contracts, independent of execution jobs."""
+"""Backend/aiservice operation contracts, independent of execution jobs."""
 from typing import Literal, Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 Category = Literal["functional", "ux", "data", "performance", "security"]

@@ -29,13 +29,20 @@ print(json.dumps([model.model_json_schema() for model in (ExecutionEvent, AIUsag
     assert normalized(actual) == normalized(json.loads(result.stdout))
 
 
-def test_capability_schemas_match_backend():
+def test_operation_schemas_match_backend():
     root = os.environ.get('BLINDSPOT_BE_REPO')
     if not root:
-        pytest.skip('Set BLINDSPOT_BE_REPO for capability contract comparison')
-    from app.capabilities.schemas import ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse
+        pytest.skip('Set BLINDSPOT_BE_REPO for operation contract comparison')
+    from app.operations.schemas import ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse
     names = ['ExtractionRequest', 'ExtractionResponse', 'VerificationRequest', 'VerificationResponse', 'EvidenceResponse']
-    script = 'import json; from app.schemas import capabilities as s; print(json.dumps([getattr(s, n).model_json_schema() for n in ' + repr(names) + ']))'
+    # BE still calls this module `capabilities`; accept either until its half of
+    # the rename lands. The class names are identical on both sides regardless.
+    script = ('import json\n'
+              'try:\n'
+              '    from app.schemas import operations as s\n'
+              'except ImportError:\n'
+              '    from app.schemas import capabilities as s\n'
+              'print(json.dumps([getattr(s, n).model_json_schema() for n in ' + repr(names) + ']))')
     result = subprocess.run([sys.executable, '-c', script], cwd=Path(root),
         env={**os.environ, 'PYTHONPATH': str(Path(root).resolve())}, capture_output=True, text=True, check=True)
     assert [m.model_json_schema() for m in (ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse)] == json.loads(result.stdout)

@@ -215,7 +215,7 @@ Properties worth knowing before changing anything in `engines/mvp/`:
   viewport, a flat `credentials` dict, and requirements — there is no
   BrowserConfiguration equivalent (no service-origin allowlist, no
   write-allowlist, no objective checks). Login reuses
-  `app/capabilities/verification.py`'s credential-key convention
+  `app/operations/verification.py`'s credential-key convention
   (`username`/`email`, `password`, optional `*_selector` overrides).
 - **Read-only by default, and not configurable.** The AI planner always sends
   `allow_writes=False` — it never proposes a form submission or any
@@ -287,11 +287,11 @@ See [the completed A1 audit](docs/a1-compliance-audit.md),
 [cost/RAG investigation](docs/ai-cost-and-rag.md). A2 cloud uploads, video,
 retrieval, and real model integrations are intentionally outside A1.
 
-## Backend capability extensions
+## Backend operation extensions
 
 This branch additionally implements authenticated document extraction, configured
 browser login verification and job-bound evidence retrieval. These are explicit
-extensions beyond A1. See [backend capabilities](docs/backend-capabilities.md)
+extensions beyond A1. See [backend operations](docs/backend-operations.md)
 for configuration, idempotency, private-network policy and opt-in browser tests.
 The A1 stub engine remains unchanged; a configured login verifier is separate
 from the future business-flow engine.

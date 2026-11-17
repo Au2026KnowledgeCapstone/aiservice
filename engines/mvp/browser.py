@@ -1,6 +1,6 @@
 """Session lifecycle: launch, login, per-requirement contexts, observation, close.
 
-Pattern copied from app/capabilities/verification.py for request interception
+Pattern copied from app/operations/verification.py for request interception
 and WebSocket denial (this codebase's house style for driving a browser).
 Also carries the reference's `runtime.py` BrowserSession responsibilities
 (observe/resolve_element/wait_ready/capture_is_consistent) — kept in this one

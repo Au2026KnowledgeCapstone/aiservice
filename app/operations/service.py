@@ -1,16 +1,16 @@
-"""Durable idempotency for synchronous capabilities; never reissue unknown model calls."""
+"""Durable idempotency for synchronous operations; never reissue unknown model calls."""
 import asyncio
 import hashlib
 import json
 from sqlalchemy.exc import IntegrityError
-from app.capabilities.models import CapabilityOperation, CapabilityUsage
-from app.capabilities.errors import CapabilityError
-from app.capabilities.documents import normalize
-from app.capabilities.extraction import Extractor
-from app.capabilities.verification import BrowserVerifier
+from app.operations.models import Operation, OperationUsage
+from app.operations.errors import OperationError
+from app.operations.documents import normalize
+from app.operations.extraction import Extractor
+from app.operations.verification import BrowserVerifier
 
 
-class Capabilities:
+class Operations:
     def __init__(self, config, sessions, extractor=None, verifier=None):
         self.config, self.sessions = config, sessions
         self.extractor = extractor or Extractor(config)
@@ -21,26 +21,26 @@ class Capabilities:
         fingerprint = hashlib.sha256(json.dumps(body.model_dump(mode="json", exclude={"credentials"}), sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         with self.sessions() as db:
             try:
-                db.add(CapabilityOperation(request_id=body.request_id, kind=kind, fingerprint=fingerprint, status='processing'))
+                db.add(Operation(request_id=body.request_id, kind=kind, fingerprint=fingerprint, status='processing'))
                 db.commit()
                 return None
             except IntegrityError:
                 db.rollback()
-                prior = db.get(CapabilityOperation, body.request_id)
+                prior = db.get(Operation, body.request_id)
                 if prior is None:
                     raise
                 if prior.fingerprint != fingerprint or prior.kind != kind:
-                    raise CapabilityError("Request ID was reused with changed input.", 409)
+                    raise OperationError("Request ID was reused with changed input.", 409)
                 if prior.status == 'finished':
                     return prior.result
                 # An interrupted provider call may already be billed. Never auto-resend.
-                raise CapabilityError("Request is processing or requires operator review after failure.", 503)
+                raise OperationError("Request is processing or requires operator review after failure.", 503)
 
     def usage(self, request_id, status, tokens=None):
         with self.sessions.begin() as db:
-            row = db.get(CapabilityUsage, request_id)
+            row = db.get(OperationUsage, request_id)
             if row is None:
-                row = CapabilityUsage(request_id=request_id, status='reserved', revision=1)
+                row = OperationUsage(request_id=request_id, status='reserved', revision=1)
                 db.add(row)
             if status != 'reserved':
                 row.status, row.revision = status, 2
@@ -50,7 +50,7 @@ class Capabilities:
 
     def finish(self, identifier, result=None, error=None):
         with self.sessions.begin() as db:
-            row = db.get(CapabilityOperation, identifier)
+            row = db.get(Operation, identifier)
             row.status = 'finished' if result is not None else 'failed'
             row.result = result
             row.error = type(error).__name__ if error else None
@@ -78,6 +78,6 @@ class Capabilities:
             if kind == 'import':
                 await asyncio.shield(asyncio.to_thread(self.usage, body.request_id, 'unknown'))
             await asyncio.shield(asyncio.to_thread(self.finish, body.request_id, None, error))
-            if isinstance(error, (CapabilityError, asyncio.CancelledError)):
+            if isinstance(error, (OperationError, asyncio.CancelledError)):
                 raise
-            raise CapabilityError("Capability execution failed.", 503) from None
+            raise OperationError("Operation execution failed.", 503) from None
