@@ -16,6 +16,8 @@ class Settings(BaseModel):
     max_concurrent_jobs: int = Field(default=1, ge=1)
     job_timeout_seconds: int = Field(default=1800, ge=1)
     callback_encryption_key: str = Field(default="", repr=False)
+    evidence_sink: Literal["outbox", "gcs"] = "outbox"
+    gcs_evidence_bucket: str = ""
     extraction_api_url: str = "https://api.openai.com/v1"
     extraction_api_key: str = Field(default="", repr=False)
     extraction_model: str = ""
