@@ -254,6 +254,24 @@ The image installs Chromium via `playwright install --with-deps` and runs as
 a non-root user. There is no Xvfb/VNC in it — live browser viewing is not in
 scope for this engine.
 
+### Cloud Run deployment
+
+The `aiservice-main-deploy` Cloud Build trigger watches pushes to `main` in
+`Au2026KnowledgeCapstone/aiservice`. Its build configuration builds the
+Dockerfile, pushes the image to Artifact Registry, and updates the existing
+`aiservice` Cloud Run service in `europe-west1` using the push commit SHA as
+the image tag. The update keeps the service's current environment variables,
+secrets, and scaling settings.
+
+The trigger stores an inline copy of [cloudbuild.yaml](cloudbuild.yaml), so it
+works before this file is merged into `main`. After changing the file, update
+the live trigger's copy:
+
+```sh
+gcloud beta builds triggers update developer-connect aiservice-main-deploy \
+  --region=europe-west1 --inline-config=cloudbuild.yaml
+```
+
 ## Verification and handoff
 
 ```sh

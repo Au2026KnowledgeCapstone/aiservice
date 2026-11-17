@@ -1,0 +1,26 @@
+substitutions:
+  _IMAGE: europe-west1-docker.pkg.dev/blindspot-512322/cloud-run-source-deploy/aiservice
+  _SERVICE: aiservice
+  _REGION: europe-west1
+
+steps:
+  - id: Build
+    name: gcr.io/cloud-builders/docker
+    args: [build, -t, '${_IMAGE}:${COMMIT_SHA}', .]
+  - id: Push
+    name: gcr.io/cloud-builders/docker
+    args: [push, '${_IMAGE}:${COMMIT_SHA}']
+  - id: Deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - services
+      - update
+      - '${_SERVICE}'
+      - '--image=${_IMAGE}:${COMMIT_SHA}'
+      - '--region=${_REGION}'
+      - --quiet
+
+options:
+  logging: CLOUD_LOGGING_ONLY
