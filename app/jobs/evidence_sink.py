@@ -63,7 +63,10 @@ class GCSEvidenceSink:
         payload = {"kind": kind, "storage_key": key, "sha256": sha256, "media_type": media_type, "captured_at": captured_at}
         if step_index is not None or kind == "screenshot":
             payload["step_index"] = step_index
-        return await self.runner.entry(self.job_id, "evidence", payload)
+        # The object's key is the evidence id BE receives via cited_evidence_ids/
+        # ActionRecord.evidence_id -- not the outbox row's own id.
+        await self.runner.entry(self.job_id, "evidence", payload)
+        return key
 
     def _upload(self, key, data, media_type, sha256, captured_at):
         blob = self.bucket.blob(key)
