@@ -3,8 +3,8 @@ import json
 from urllib.parse import urlsplit
 import httpx
 from pydantic import BaseModel, Field, ValidationError, ConfigDict
-from app.capabilities.errors import CapabilityError
-from app.capabilities.schemas import Category, Priority, Text, ExtractedRequirement, ExtractionResponse
+from app.operations.errors import OperationError
+from app.operations.schemas import Category, Priority, Text, ExtractedRequirement, ExtractionResponse
 
 
 class Candidate(BaseModel):
@@ -33,9 +33,9 @@ class Extractor:
     def configured(self):
         parsed = urlsplit(self.config.extraction_api_url)
         if not self.config.extraction_api_key or not self.config.extraction_model:
-            raise CapabilityError("Extraction model is not configured.", 503)
+            raise OperationError("Extraction model is not configured.", 503)
         if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment:
-            raise CapabilityError("Extraction API must use an HTTPS base URL without embedded credentials.", 503)
+            raise OperationError("Extraction API must use an HTTPS base URL without embedded credentials.", 503)
 
     async def extract(self, request, blocks, warnings):
         self.configured()
@@ -49,28 +49,28 @@ class Extractor:
                 async with client.stream('POST', self.config.extraction_api_url.rstrip('/') + '/chat/completions',
                         headers={'Authorization': 'Bearer ' + self.config.extraction_api_key}, json=body) as response:
                     if response.status_code != 200:
-                        raise CapabilityError("Extraction provider rejected or failed the request.", 503)
+                        raise OperationError("Extraction provider rejected or failed the request.", 503)
                     content = bytearray()
                     async for chunk in response.aiter_bytes():
                         content.extend(chunk)
                         if len(content) > 2_000_000:
-                            raise CapabilityError("Extraction response exceeds the limit.", 502)
+                            raise OperationError("Extraction response exceeds the limit.", 502)
             payload = json.loads(content)
             choice = payload['choices'][0]
             if choice.get('finish_reason') != 'stop' or choice['message'].get('refusal'):
-                raise CapabilityError("Extraction response was refused or incomplete.", 502)
+                raise OperationError("Extraction response was refused or incomplete.", 502)
             candidates = Candidates.model_validate_json(choice['message']['content'])
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
-            raise CapabilityError("Extraction provider failed or returned invalid JSON.", 503) from None
+            raise OperationError("Extraction provider failed or returned invalid JSON.", 503) from None
         passages = {b['id']: b for b in blocks}
         requirements = []
         for candidate in candidates.requirements:
             passage = passages.get(candidate.passage_id)
             if not passage:
-                raise CapabilityError("Extraction returned an unknown source passage; nothing was accepted.", 502)
+                raise OperationError("Extraction returned an unknown source passage; nothing was accepted.", 502)
             values = candidate.model_dump(exclude={'passage_id'})
             if not candidate.title.strip() or any(not c.strip() for c in candidate.criteria):
-                raise CapabilityError("Extraction returned blank requirement content.", 502)
+                raise OperationError("Extraction returned blank requirement content.", 502)
             requirements.append(ExtractedRequirement(**values, document_id=passage['document_id'], excerpt=passage['text'],
                 char_start=passage['start'], char_end=passage['end']))
         usage = payload.get('usage', {})

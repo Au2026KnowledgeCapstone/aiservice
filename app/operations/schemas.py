@@ -1,4 +1,4 @@
-"""Backend/aiservice capability contracts, independent of execution jobs."""
+"""Backend/aiservice operation contracts, independent of execution jobs."""
 from typing import Literal, Annotated
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 Category = Literal["functional", "ux", "data", "performance", "security"]
@@ -63,13 +63,3 @@ class VerificationResponse(Strict):
         if (self.status == "verified") != (self.reason == "success_observed"):
             raise ValueError("Verified status requires observed success")
         return self
-
-
-class EvidenceResponse(Strict):
-    id: str
-    job_id: str
-    type: Literal["screenshot", "page_text", "log"]
-    media_type: str
-    content_base64: str = Field(max_length=14_000_000, repr=False)
-    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
-    captured_at: str | None = None

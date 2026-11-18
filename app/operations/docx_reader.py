@@ -3,7 +3,7 @@ import io
 import zipfile
 import zlib
 import xml.etree.ElementTree as ET
-from app.capabilities.errors import CapabilityError as ServiceError
+from app.operations.errors import OperationError as ServiceError
 
 MAX_XML_BYTES = 4 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 20 * 1024 * 1024

@@ -1,6 +1,5 @@
 """Process-local scheduling; database work uses independent sessions off the event loop."""
 import asyncio
-import base64
 import logging
 import uuid
 from dataclasses import asdict
@@ -8,6 +7,7 @@ from dataclasses import asdict
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import Settings
+from app.jobs.evidence_sink import evidence_sink
 from app.jobs.models import Job, OutboxEntry, now
 from app.jobs.store import accept_job
 from app.callbacks.secrets import token_cipher
@@ -163,7 +163,7 @@ class JobRunner:
             )
             requirements = tuple(to_requirement_snapshot(r) for r in envelope.requirements)
             await engine.survey(session, requirements)
-            sink = OutboxEvidenceSink(self, envelope.job_id)
+            sink = evidence_sink(self.config, self, envelope.job_id)
             for requirement in requirements:
                 outcome = await engine.execute(session, requirement, sink)
                 await self.entry(envelope.job_id, "requirement_outcome", {
@@ -181,18 +181,3 @@ class JobRunner:
                 if engine is not None:
                     async with asyncio.timeout(5):
                         await engine.close()
-
-
-class OutboxEvidenceSink:
-    def __init__(self, runner, job_id):
-        self.runner = runner
-        self.job_id = job_id
-
-    async def put_text(self, body, *, kind):
-        return await self.runner.entry(self.job_id, "evidence", {"kind": kind, "text": body, "captured_at": now().isoformat()})
-
-    async def put_screenshot(self, data, *, step_index=None):
-        return await self.runner.entry(self.job_id, "evidence", {
-            "kind": "screenshot", "step_index": step_index, "captured_at": now().isoformat(),
-            "base64": base64.b64encode(data).decode("ascii"),
-        })

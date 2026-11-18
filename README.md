@@ -36,6 +36,23 @@ make run
 The API listens on `http://127.0.0.1:8001`; check `http://127.0.0.1:8001/health`.
 `make run` does not migrate the database automatically.
 
+## API reference
+
+With the server running, open [Swagger UI](http://127.0.0.1:8001/docs) to browse
+and try the API. [ReDoc](http://127.0.0.1:8001/redoc) is also available, and
+FastAPI serves the live OpenAPI schema at
+[/openapi.json](http://127.0.0.1:8001/openapi.json).
+
+Regenerate the committed [OpenAPI specification](docs/openapi.json) after
+changing the API:
+
+```sh
+make openapi
+```
+
+This command only imports the app and does not require a running server or
+database connection.
+
 ## Service authentication
 
 Set a nonempty `SERVICE_TOKEN` in `.env` and restart the API after changing it.
@@ -198,7 +215,7 @@ Properties worth knowing before changing anything in `engines/mvp/`:
   viewport, a flat `credentials` dict, and requirements — there is no
   BrowserConfiguration equivalent (no service-origin allowlist, no
   write-allowlist, no objective checks). Login reuses
-  `app/capabilities/verification.py`'s credential-key convention
+  `app/operations/verification.py`'s credential-key convention
   (`username`/`email`, `password`, optional `*_selector` overrides).
 - **Read-only by default, and not configurable.** The AI planner always sends
   `allow_writes=False` — it never proposes a form submission or any
@@ -237,6 +254,24 @@ The image installs Chromium via `playwright install --with-deps` and runs as
 a non-root user. There is no Xvfb/VNC in it — live browser viewing is not in
 scope for this engine.
 
+### Cloud Run deployment
+
+The `aiservice-main-deploy` Cloud Build trigger watches pushes to `main` in
+`Au2026KnowledgeCapstone/aiservice`. Its build configuration builds the
+Dockerfile, pushes the image to Artifact Registry, and updates the existing
+`aiservice` Cloud Run service in `europe-west1` using the push commit SHA as
+the image tag. The update keeps the service's current environment variables,
+secrets, and scaling settings.
+
+The trigger stores an inline copy of [cloudbuild.yaml](cloudbuild.yaml), so it
+works before this file is merged into `main`. After changing the file, update
+the live trigger's copy:
+
+```sh
+gcloud beta builds triggers update developer-connect aiservice-main-deploy \
+  --region=europe-west1 --inline-config=cloudbuild.yaml
+```
+
 ## Verification and handoff
 
 ```sh
@@ -252,11 +287,11 @@ See [the completed A1 audit](docs/a1-compliance-audit.md),
 [cost/RAG investigation](docs/ai-cost-and-rag.md). A2 cloud uploads, video,
 retrieval, and real model integrations are intentionally outside A1.
 
-## Backend capability extensions
+## Backend operation extensions
 
 This branch additionally implements authenticated document extraction, configured
 browser login verification and job-bound evidence retrieval. These are explicit
-extensions beyond A1. See [backend capabilities](docs/backend-capabilities.md)
+extensions beyond A1. See [backend operations](docs/backend-operations.md)
 for configuration, idempotency, private-network policy and opt-in browser tests.
 The A1 stub engine remains unchanged; a configured login verifier is separate
 from the future business-flow engine.

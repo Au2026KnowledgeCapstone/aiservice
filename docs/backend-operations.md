@@ -1,9 +1,16 @@
-# Backend capability extensions
+# Backend operation extensions
 
-Branch `feat/backend-capabilities` extends the audited A1 protocol with document
+Branch `feat/backend-capabilities` extended the audited A1 protocol with document
 extraction, configured credential-form verification, and operational evidence
 retrieval. This work was explicitly authorized after the A1-only audit; A1's
 job, callback, provider and stub-engine behavior remains compatible.
+
+> These endpoints were originally called *capabilities*, after the
+> change-management boundary that produced them — the work added once the A1-only
+> audit had closed — rather than after anything they have in common. They are now
+> **operations**, which is what the model classes already meant. Nothing on the
+> wire changed: no route, field or schema class was affected by the rename. The
+> historical branch and migration names are left as they were.
 
 All new endpoints require `Authorization: Bearer <SERVICE_TOKEN>` and live in
 `app/main.py`:
@@ -12,17 +19,40 @@ All new endpoints require `Authorization: Bearer <SERVICE_TOKEN>` and live in
 | --- | --- |
 | POST /v1/imports | Validate/normalize the required BRD/SRS plus optional design document, ask the configured provider for draft candidates, and attach original source passages |
 | POST /v1/environments/verify | Check a configured login form with an isolated Chromium context and explicit observed success condition |
-| GET /v1/jobs/{job_id}/evidence/{evidence_id} | Return bounded, hash-addressed content only when that operational evidence belongs to the specified job |
 
-See `app/capabilities/schemas.py` for the complete wire contract. The optional
-`BLINDSPOT_BE_REPO` contract test compares it exactly with
-`BlindSpotBE/app/schemas/capabilities.py`. The matching backend branch is
+`GET /v1/jobs/{job_id}/evidence/{evidence_id}` was retired in the B6 object
+storage work: evidence now goes straight to a GCS bucket (`GCSEvidenceSink`,
+`app/jobs/evidence_sink.py`) and BE reads it directly from the bucket instead
+of calling back into aiservice.
+
+See `app/operations/schemas.py` for the complete wire contract. The optional
+`BLINDSPOT_BE_REPO` contract test compares it exactly with BE's matching module,
+still named `BlindSpotBE/app/schemas/capabilities.py` until BE's half of the
+rename lands; the test accepts either name. The matching backend branch is
 `feat/backend-ai-integration`, PR #10. It implements the 17 assigned endpoints,
 retains originals privately, and issues user-bound five-minute downloads.
 
 ## Setup
 
 Apply `.venv/bin/alembic upgrade head` in aiservice's own operational database.
+
+> **Alembic owns the `aiservice` schema. The Supabase CLI does not.**
+>
+> In the shared environment this schema lives inside BE's Supabase project
+> rather than a separate database — intentional, for want of time to stand up a
+> second project. That co-location makes it tempting to manage these tables with
+> `supabase migration` alongside BE's. Do not. Every table inside the `aiservice`
+> schema is created and altered by the revisions in `alembic/versions/`, and
+> `aiservice.alembic_version` is the only record of where the schema stands.
+>
+> The two Supabase migrations named `create_aiservice_operational_schema` and
+> `grant_aiservice_schema_to_blindspot_role` are the correct exception: they
+> create the schema and grant the role, which is Supabase-level provisioning
+> rather than table DDL. Everything inside the schema is alembic's.
+>
+> Applying a table change through the Supabase CLI records a migration that has
+> no file in BE's repository and no matching alembic revision, leaving the two
+> histories disagreeing about the same schema.
 Never configure this service with BE's database URL.
 
 Document extraction:
@@ -77,12 +107,12 @@ requests must stay on the approved origin. Private targets require an explicit
 host allowlist; metadata/link-local targets remain blocked. The environment's
 credentials never go into an operation row, result, log, or model prompt.
 `VERIFICATION_BROWSER_EXECUTABLE` can point at compatible system Chrome/Chromium;
-otherwise use Playwright's Chromium. Run a single API worker; capabilities and
+otherwise use Playwright's Chromium. Run a single API worker; operations and
 A1 execution share the process's concurrency semaphore.
 
 ## Durable operation semantics
 
-`capability_operations` stores an ID, canonical input fingerprint, state and
+`operations` stores an ID, canonical input fingerprint, state and
 sanitized result/error category. Identical completed operations replay without
 another model/browser action; changed reuse is 409. Processing/failed/unknown
 requests return 503 rather than automatically repeating potentially billable
@@ -90,19 +120,12 @@ work. Browser credentials are excluded from the saved fingerprint and never stor
 as fields or payloads. Changing credentials alone does not rerun an operation;
 use a new request ID for a new verification, as the backend does.
 
-`capability_usage` records a reservation before the extraction request and a
+`operation_usage` records a reservation before the extraction request and a
 final revision with reported token counts afterward. Cost remains null without
 reported/configured pricing. Failed or interrupted requests remain unknown,
 not zero. An operator must inspect external outcomes before intentionally
 starting another operation; there is no automatic same-ID paid-call recovery.
 These operational rows are separate from A1 per-run metering callbacks.
-
-The evidence endpoint reads existing local outbox evidence and returns content,
-media type, SHA-256 and capture timestamp when available. It does not expose
-object paths or callback credentials and does not upload cloud objects. The
-backend authorizes saved result citations before calling it, then caches the
-verified content in its private persistent store. Legacy evidence without a
-capture timestamp returns null rather than inventing one.
 
 ## Verification
 
@@ -118,9 +141,8 @@ Tests cover reservations, idempotency, failures without repeated charges,
 server-attached citations, unknown passage rejection, actual PDF/DOCX readers,
 exact BE schemas, migration round trips/zero drift, and real browser success
 and failure against a synthetic local login form. Backend integration tests run
-this HTTP API with a fake model transport and real Chromium, and also retrieve
-real A1 stub evidence through the service boundary. No outside application,
-production database, paid model, or cloud infrastructure is used.
+this HTTP API with a fake model transport and real Chromium. No outside
+application, production database, paid model, or cloud infrastructure is used.
 
 Recorded validation: **119 aiservice tests passed**, including real PostgreSQL
 and browser opt-ins; the matching backend passed **93 tests and 25 subtests**,

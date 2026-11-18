@@ -5,9 +5,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs
 from uuid import uuid4
 import pytest
-from app.capabilities.verification import BrowserVerifier, target
-from app.capabilities.schemas import VerificationRequest
-from app.capabilities.errors import CapabilityError
+from app.operations.verification import BrowserVerifier, target
+from app.operations.schemas import VerificationRequest
+from app.operations.errors import OperationError
 from tests.test_intake import config
 
 
@@ -46,5 +46,5 @@ async def test_real_login_success_and_failure(login_server, password, status):
 
 
 async def test_metadata_and_unapproved_private_targets_are_blocked():
-    with pytest.raises(CapabilityError): await target('http://169.254.169.254', config())
-    with pytest.raises(CapabilityError): await target('http://127.0.0.1', config())
+    with pytest.raises(OperationError): await target('http://169.254.169.254', config())
+    with pytest.raises(OperationError): await target('http://127.0.0.1', config())

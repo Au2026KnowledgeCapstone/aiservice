@@ -1,4 +1,4 @@
-.PHONY: init install browser migrate run test lint
+.PHONY: init install browser migrate run test lint openapi
 
 init: install browser
 	@if [ ! -f .env ]; then cp .env.example .env; echo "Created .env from .env.example; configure DATABASE_URL and SERVICE_TOKEN."; fi
@@ -21,3 +21,8 @@ test:
 
 lint:
 	.venv/bin/python -m compileall -q app engines
+
+# Regenerate the committed API contract from the FastAPI application.
+openapi:
+	.venv/bin/python -c "import json, pathlib; from app.main import app; pathlib.Path('docs/openapi.json').write_text(json.dumps(app.openapi(), indent=2) + '\n')"
+	@echo "wrote docs/openapi.json"

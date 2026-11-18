@@ -66,7 +66,11 @@ def _criterion_verdicts(requirement: RequirementSnapshot, execution: Execution, 
 def _actions(execution: Execution, evidence_by_observation: dict) -> tuple:
     records = []
     for entry in execution.logs:
-        if "action" not in entry:
+        # Diagnostic entries (`failure_point`, ...) deliberately carry the failing step's
+        # `action`/`step_index`, so key presence alone would emit a second ActionRecord at
+        # the same index — which BE rejects as a 409. Only the genuine per-step entry
+        # goal_executor appends has no `"type"` marker.
+        if "action" not in entry or "type" in entry:
             continue
         evidence_id = evidence_by_observation.get(entry.get("after_observation_id")) or evidence_by_observation.get(entry.get("before_observation_id"))
         records.append(ActionRecord(
