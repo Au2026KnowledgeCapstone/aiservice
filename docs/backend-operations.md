@@ -5,7 +5,7 @@ extraction, configured credential-form verification, and operational evidence
 retrieval. This work was explicitly authorized after the A1-only audit; A1's
 job, callback, provider and stub-engine behavior remains compatible.
 
-> These three endpoints were originally called *capabilities*, after the
+> These endpoints were originally called *capabilities*, after the
 > change-management boundary that produced them — the work added once the A1-only
 > audit had closed — rather than after anything they have in common. They are now
 > **operations**, which is what the model classes already meant. Nothing on the
@@ -19,7 +19,11 @@ All new endpoints require `Authorization: Bearer <SERVICE_TOKEN>` and live in
 | --- | --- |
 | POST /v1/imports | Validate/normalize the required BRD/SRS plus optional design document, ask the configured provider for draft candidates, and attach original source passages |
 | POST /v1/environments/verify | Check a configured login form with an isolated Chromium context and explicit observed success condition |
-| GET /v1/jobs/{job_id}/evidence/{evidence_id} | Return bounded, hash-addressed content only when that operational evidence belongs to the specified job |
+
+`GET /v1/jobs/{job_id}/evidence/{evidence_id}` was retired in the B6 object
+storage work: evidence now goes straight to a GCS bucket (`GCSEvidenceSink`,
+`app/jobs/evidence_sink.py`) and BE reads it directly from the bucket instead
+of calling back into aiservice.
 
 See `app/operations/schemas.py` for the complete wire contract. The optional
 `BLINDSPOT_BE_REPO` contract test compares it exactly with BE's matching module,
@@ -123,13 +127,6 @@ not zero. An operator must inspect external outcomes before intentionally
 starting another operation; there is no automatic same-ID paid-call recovery.
 These operational rows are separate from A1 per-run metering callbacks.
 
-The evidence endpoint reads existing local outbox evidence and returns content,
-media type, SHA-256 and capture timestamp when available. It does not expose
-object paths or callback credentials and does not upload cloud objects. The
-backend authorizes saved result citations before calling it, then caches the
-verified content in its private persistent store. Legacy evidence without a
-capture timestamp returns null rather than inventing one.
-
 ## Verification
 
 Use a separate disposable PostgreSQL database and installed Chromium:
@@ -144,9 +141,8 @@ Tests cover reservations, idempotency, failures without repeated charges,
 server-attached citations, unknown passage rejection, actual PDF/DOCX readers,
 exact BE schemas, migration round trips/zero drift, and real browser success
 and failure against a synthetic local login form. Backend integration tests run
-this HTTP API with a fake model transport and real Chromium, and also retrieve
-real A1 stub evidence through the service boundary. No outside application,
-production database, paid model, or cloud infrastructure is used.
+this HTTP API with a fake model transport and real Chromium. No outside
+application, production database, paid model, or cloud infrastructure is used.
 
 Recorded validation: **119 aiservice tests passed**, including real PostgreSQL
 and browser opt-ins; the matching backend passed **93 tests and 25 subtests**,

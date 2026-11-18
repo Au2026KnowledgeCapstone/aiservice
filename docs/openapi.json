@@ -91,59 +91,6 @@
         ]
       }
     },
-    "/v1/jobs/{job_id}/evidence/{evidence_id}": {
-      "get": {
-        "summary": "Retrieve Evidence",
-        "operationId": "retrieve_evidence_v1_jobs__job_id__evidence__evidence_id__get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Job Id"
-            }
-          },
-          {
-            "name": "evidence_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Evidence Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EvidenceResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -325,63 +272,6 @@
           "content_base64"
         ],
         "title": "DocumentInput"
-      },
-      "EvidenceResponse": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "title": "Id"
-          },
-          "job_id": {
-            "type": "string",
-            "title": "Job Id"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "screenshot",
-              "page_text",
-              "log"
-            ],
-            "title": "Type"
-          },
-          "media_type": {
-            "type": "string",
-            "title": "Media Type"
-          },
-          "content_base64": {
-            "type": "string",
-            "maxLength": 14000000,
-            "title": "Content Base64"
-          },
-          "sha256": {
-            "type": "string",
-            "pattern": "^[0-9a-f]{64}$",
-            "title": "Sha256"
-          },
-          "captured_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Captured At"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "id",
-          "job_id",
-          "type",
-          "media_type",
-          "content_base64",
-          "sha256"
-        ],
-        "title": "EvidenceResponse"
       },
       "ExtractedRequirement": {
         "properties": {

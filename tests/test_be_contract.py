@@ -33,8 +33,8 @@ def test_operation_schemas_match_backend():
     root = os.environ.get('BLINDSPOT_BE_REPO')
     if not root:
         pytest.skip('Set BLINDSPOT_BE_REPO for operation contract comparison')
-    from app.operations.schemas import ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse
-    names = ['ExtractionRequest', 'ExtractionResponse', 'VerificationRequest', 'VerificationResponse', 'EvidenceResponse']
+    from app.operations.schemas import ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse
+    names = ['ExtractionRequest', 'ExtractionResponse', 'VerificationRequest', 'VerificationResponse']
     # BE still calls this module `capabilities`; accept either until its half of
     # the rename lands. The class names are identical on both sides regardless.
     script = ('import json\n'
@@ -45,4 +45,4 @@ def test_operation_schemas_match_backend():
               'print(json.dumps([getattr(s, n).model_json_schema() for n in ' + repr(names) + ']))')
     result = subprocess.run([sys.executable, '-c', script], cwd=Path(root),
         env={**os.environ, 'PYTHONPATH': str(Path(root).resolve())}, capture_output=True, text=True, check=True)
-    assert [m.model_json_schema() for m in (ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse)] == json.loads(result.stdout)
+    assert [m.model_json_schema() for m in (ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse)] == json.loads(result.stdout)

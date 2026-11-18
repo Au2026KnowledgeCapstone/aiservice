@@ -18,7 +18,7 @@ from engines.registry import build_engine
 from app.provider import MeteredProvider
 from app.ai_transport import OpenAITransport
 from app.operations.service import Operations
-from app.operations.schemas import ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse, EvidenceResponse
+from app.operations.schemas import ExtractionRequest, ExtractionResponse, VerificationRequest, VerificationResponse
 from app.operations.errors import OperationError
 
 
@@ -75,11 +75,6 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
     @application.post("/v1/environments/verify", response_model=VerificationResponse, dependencies=[Depends(require_service_token)])
     async def verify_login(body: VerificationRequest, request: Request):
         return await request.app.state.operations.run("verify", body)
-
-    @application.get("/v1/jobs/{job_id}/evidence/{evidence_id}", response_model=EvidenceResponse, dependencies=[Depends(require_service_token)])
-    async def retrieve_evidence(job_id: str, evidence_id: str, request: Request):
-        from app.operations.evidence import retrieve
-        return await asyncio.to_thread(retrieve, request.app.state.runner.sessions, job_id, evidence_id)
 
     @application.get("/health")
     @application.get("/heath", include_in_schema=False)
