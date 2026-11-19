@@ -315,7 +315,7 @@ async def execute_goal(session, page, plan, requirement, provider, sink, on_prog
                         event["navigation"] = {"status": "not_confirmed", "page_ready": False, "expected_url": safe_endpoint(bound.expected, session.redactor), "actual_url": safe_endpoint(page.url, session.redactor)}
                     transition_before = None
                     completion_step = step
-                    if step.action in {"navigate", "click", "fill", "select", "check", "press", "wait"} and not await session.capture_is_consistent(page, observation):
+                    if step.action in {"navigate", "click", "fill", "select", "check", "press", "wait"} and not await session.await_consistent(page, observation):
                         raise EngineError("The page changed after the before-action screenshot; no action was taken.")
                     if change_kind(step) != "none":
                         transition_before = await page_state(page)

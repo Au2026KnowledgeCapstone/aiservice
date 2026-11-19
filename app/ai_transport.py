@@ -2,11 +2,37 @@
 import base64
 import json
 import re
+from decimal import Decimal
 from urllib.parse import urlsplit
 
 import httpx
 
 from app.provider import ProviderResponse
+
+# USD per single token (OpenAI publishes per-million rates; divided down here).
+# Standard, non-batch, non-cached-input pricing only -- this does not account
+# for OpenAI's discounted cached-input rate, since the Chat Completions usage
+# object we read (see request(), usage.prompt_tokens) does not break out how
+# many of those input tokens were served from cache. That makes this an
+# over-estimate on cache hits, never an under-estimate.
+#
+# Confirmed 2026-11-19 against OpenAI's published rate card (cross-checked
+# against third-party trackers, since this service has no live pricing feed).
+# Pricing changes over time and is not fetched automatically: if a model
+# below looks wrong, or a new model is added to AI_MODEL/EXTRACTION_MODEL
+# without a row here, verify at https://openai.com/api/pricing and update
+# this table -- do not guess. A model with no entry here intentionally keeps
+# `amount` as None rather than silently reporting an invented cost.
+PRICING_USD_PER_TOKEN = {
+    "gpt-4o-mini": {"input": Decimal("0.15") / 1_000_000, "output": Decimal("0.60") / 1_000_000},
+}
+
+
+def priced_amount(model, input_tokens, output_tokens):
+    rate = PRICING_USD_PER_TOKEN.get(model)
+    if rate is None or input_tokens is None or output_tokens is None:
+        return None
+    return input_tokens * rate["input"] + output_tokens * rate["output"]
 
 
 class OpenAITransport:
@@ -107,6 +133,7 @@ class OpenAITransport:
                 input_tokens = None
             if type(output_tokens) is not int or output_tokens < 0:
                 output_tokens = None
-            return ProviderResponse(result, input_tokens, output_tokens)
+            amount = priced_amount(self.model, input_tokens, output_tokens)
+            return ProviderResponse(result, input_tokens, output_tokens, amount)
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
             raise RuntimeError("AI provider failed or returned an invalid structured response.") from None

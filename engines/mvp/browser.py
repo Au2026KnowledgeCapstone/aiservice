@@ -26,7 +26,7 @@ import asyncio
 from urllib.parse import urlsplit
 
 from engines.base import Credentials, Target
-from engines.mvp.checkpoints import page_state
+from engines.mvp.checkpoints import destination_content_ready, page_state
 from engines.mvp.contracts import EngineConfiguration
 from engines.mvp.discovery import discover
 from engines.mvp.errors import EngineError, PolicyDenied
@@ -191,20 +191,65 @@ class MvpSession:
             "interaction_context": {"popups": [{"role": popup["role"], "name": self.redactor.text(popup["name"], 200)} for popup in state["popups"]]},
             "page_state_hash": state["state_hash"],
             "visual_content_hash": state["visual_hash"],
-            "render_ready": state["fonts_ready"] and not state["animations_running"] and all(image["loaded"] for image in state["images"]),
+            # "Has the page rendered and settled?" — not "is the page perfectly
+            # still?". Perpetual motion is normal (banners, timers, marquees)
+            # and is recorded per observation rather than treated as not-ready.
+            "render_ready": state["fonts_ready"] and not state["busy"] and destination_content_ready(state),
+            "unloaded_images": sum(1 for image in state["images"] if not image["loaded"]),
         }
 
     async def capture_is_consistent(self, page, observation) -> bool:
+        """Is the page being acted on still the page that was reasoned about?
+
+        Same URL and same controls, rendered, and not busy. This deliberately
+        tolerates motion that does not move a control: a page with an
+        auto-rotating banner or a live countdown changes its text and image
+        srcs forever, and gating on that made every action on such a page
+        impossible (zero actions taken, "the page did not finish loading").
+
+        What is given up: a screenshot may differ from the observed state in
+        pixels that belong to moving content, and may contain an image that is
+        still loading. Both are now recorded on the observation
+        (`ongoing_motion`, `unloaded_images`) so evidence is read with that in
+        mind. What is still guaranteed: no action runs against a control that
+        moved, changed name, or changed state under the observation, and no
+        checkpoint is recorded for an unrendered or busy page. Whether an
+        action actually had its intended effect is a separate, still-strict
+        question answered by wait_for_transition.
+        """
         state = await page_state(page)
-        snapshot = await page.locator("body").aria_snapshot(timeout=4000)
+        if state["visual_hash"] != observation.get("visual_content_hash"):
+            observation["ongoing_motion"] = True
+        # The screenshot was taken between observe() and this re-check, so keep
+        # whichever side saw more still loading rather than letting a later
+        # re-check of an older observation report a cleaner page than its own
+        # evidence showed.
+        observation["unloaded_images"] = max(
+            observation.get("unloaded_images", 0),
+            sum(1 for image in state["images"] if not image["loaded"]),
+        )
         return (
             observation.get("render_ready", False)
-            and not state["animations_running"]
             and state["state_hash"] == observation["page_state_hash"]
-            and self.redactor.text(snapshot, 12000) == observation["accessible_ui"]
             and state["fonts_ready"]
-            and all(image["loaded"] for image in state["images"])
+            and not state["busy"]
         )
+
+    async def await_consistent(self, page, observation, attempts: int = 3, delay: float = 0.2) -> bool:
+        """capture_is_consistent with a small bounded resample.
+
+        A single sample can land on a genuinely transient blip (a control
+        mid-re-render). Callers that gate an action on consistency but have no
+        retry of their own use this so one unlucky reading does not abort a
+        step. Bounded on purpose: a page whose controls really will not settle
+        must still fail.
+        """
+        for attempt in range(attempts):
+            if await self.capture_is_consistent(page, observation):
+                return True
+            if attempt + 1 < attempts:
+                await asyncio.sleep(delay)
+        return False
 
     async def resolve_element(self, element_id):
         candidate = self.elements.get(element_id)
