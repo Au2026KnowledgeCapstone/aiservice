@@ -256,21 +256,24 @@ scope for this engine.
 
 ### Cloud Run deployment
 
-The `aiservice-main-deploy` Cloud Build trigger watches pushes to `main` in
+The `aiservice-main-deploy-configured` Cloud Build trigger watches pushes to `main` in
 `Au2026KnowledgeCapstone/aiservice`. Its build configuration builds the
 Dockerfile, pushes the image to Artifact Registry, and updates the existing
 `aiservice` Cloud Run service in `europe-west1` using the push commit SHA as
 the image tag. The update keeps the service's current environment variables,
 secrets, and scaling settings.
 
-The trigger stores an inline copy of [cloudbuild.yaml](cloudbuild.yaml), so it
-works before this file is merged into `main`. After changing the file, update
-the live trigger's copy:
+Each image deployment also reapplies the required runtime variables and Secret
+Manager references, including GCS evidence storage and the extraction model.
+It uses `--update-env-vars` and `--update-secrets`, which retain unrelated
+settings; the `--set-*` flags would replace them. Extraction and MVP planning
+share the `AISERVICE_OPENAI_API_KEY` secret. Browser verification allows public
+targets; `VERIFICATION_ALLOWED_PRIVATE_HOSTS` stays unset.
 
-```sh
-gcloud beta builds triggers update developer-connect aiservice-main-deploy \
-  --region=europe-west1 --inline-config=cloudbuild.yaml
-```
+The trigger stores an inline copy of [cloudbuild.yaml](cloudbuild.yaml), so it
+works before this file is merged into `main`. If this file changes, replace the
+trigger's inline configuration as part of the deployment change; editing the
+repository file alone does not change the active trigger.
 
 ## Verification and handoff
 
