@@ -7,6 +7,14 @@ aiservice's `AIProvider` protocol has no assistant-message slot to repair into,
 and a silent extra call on validation failure would be exactly the
 "retry-until-something-works" behavior A4 exists to avoid. A schema mismatch
 raises; the caller turns that into `inconclusive`, never a second attempt.
+
+`wire_schema` lets a caller send a *narrower* schema than `schema_type` for one
+call — specifically, to pin a field to an enum of values only that call site
+knows (see `planner.choose_element`, which enumerates the current shortlist's
+element IDs so strict structured-output decoding cannot name a control that is
+not on the page). It constrains generation only: `schema_type` still parses the
+response and still names the operation for usage accounting, and nothing here
+retries. Prevention, not repair.
 """
 import json
 
@@ -15,8 +23,8 @@ from pydantic import BaseModel, ValidationError
 from engines.mvp.errors import EngineError
 
 
-async def structured(provider, instruction: str, data: dict, schema_type: type[BaseModel], *, images=()) -> BaseModel:
-    schema = schema_type.model_json_schema()
+async def structured(provider, instruction: str, data: dict, schema_type: type[BaseModel], *, images=(), wire_schema: dict | None = None) -> BaseModel:
+    schema = schema_type.model_json_schema() if wire_schema is None else wire_schema
     user = json.dumps(data, default=str, ensure_ascii=False)
     result = await provider.structured(
         operation=schema_type.__name__,

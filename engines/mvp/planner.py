@@ -36,6 +36,32 @@ def _choice(identifier, explanation, method):
     return choice
 
 
+def _shortlist_schema(ids):
+    """`ElementChoice`, with `element_id` pinned to the IDs actually on offer.
+
+    `ElementChoice.element_id` is an open `str | None`, so nothing in the static
+    schema stops a model from naming a control that is not on the page. The
+    transport requests OpenAI strict structured output (`ai_transport.py`
+    `_strict_schema`, `"strict": True`), which enforces `enum` membership during
+    decoding rather than merely hinting at it — so enumerating the shortlist
+    here makes an out-of-shortlist ID ungeneratable instead of caught after the
+    fact. Well inside the documented limits: enums cap at 1000 values, the
+    15,000-character ceiling applies only above 250 values, and `anyOf` is
+    supported on a nested property. The shortlist is capped at 60 above.
+
+    Parsing still uses `ElementChoice` itself, so a provider that ignores the
+    schema is caught by the membership check in `choose_element` rather than
+    dying in validation.
+    """
+    schema = ElementChoice.model_json_schema()
+    element_id = schema["properties"]["element_id"]
+    schema["properties"]["element_id"] = {
+        "anyOf": [{"type": "string", "enum": list(ids)}, {"type": "null"}],
+        **({"description": element_id["description"]} if "description" in element_id else {}),
+    }
+    return schema
+
+
 async def choose_element(provider, step, observation):
     from engines.mvp import ai
 
@@ -75,6 +101,7 @@ async def choose_element(provider, step, observation):
     if len(shortlist) > 60:
         return _choice(None, "Too many equally plausible controls; provide a more specific row, form or dialog.", "ambiguous")
     current = {**observation, "controls": shortlist}
+    ids = [item["element_id"] for item in shortlist]
     choice = await ai.structured(
         provider,
         "Choose the one observed element ID that accomplishes this step intent. "
@@ -83,10 +110,14 @@ async def choose_element(provider, step, observation):
         "Repeated labels require matching context; never choose the first match or guess. "
         "Return element_id=null when absent or ambiguous. Never invent IDs or select credential fields. Return JSON.",
         {"step": step.model_dump(), "current_page": current}, ElementChoice,
+        wire_schema=_shortlist_schema(ids),
     )
-    ids = {item["element_id"] for item in shortlist}
-    if choice.element_id is not None and choice.element_id not in ids:
-        raise EngineError("AI selected an element ID outside the current actionable observation.")
+    # Unreachable for a provider that honours the enum above. Kept for any that
+    # does not: abstaining is the honest outcome — the step got no usable answer,
+    # exactly the case element_id=null already covers — and it costs nothing. A
+    # second attempt would be another priced call at the same odds.
+    if choice.element_id is not None and choice.element_id not in set(ids):
+        return _choice(None, "The model named an element ID that is not in the observed shortlist.", "ambiguous")
     choice._selection_method = "contextual_ai_selection"
     return choice
 
