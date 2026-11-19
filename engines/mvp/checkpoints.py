@@ -39,10 +39,23 @@ def digest(value):
 async def page_state(page):
     raw = await page.evaluate(STATE_JS)
     # Raw state remains transient; only hashes and redacted region descriptions are stored.
+    #
+    # Two different questions need two different hashes, and conflating them
+    # made any page with perpetual motion untestable:
+    #
+    # - `visual_hash`/`content_hash` answer "did the content change?" — the
+    #   transition machinery's job (did the click actually do something). They
+    #   stay broad: text, images and controls all count as content.
+    # - `state_hash` answers "is this still the same page I reasoned about?" —
+    #   the capture checkpoint's job, which gates whether an action may run at
+    #   all. It covers only the URL and the controls, because those are what an
+    #   action resolves against. A rotating banner or a ticking clock changes
+    #   text and image srcs forever; including those here meant the checkpoint
+    #   could never pass on such a page and no action was ever attempted.
     return {
         **raw,
         "visual_hash": digest({"text": raw["text"], "images": raw["images"], "control_states": raw.get("control_states", [])}),
-        "state_hash": digest({"url": raw["url"], "text": raw["text"], "images": raw["images"], "control_states": raw.get("control_states", [])}),
+        "state_hash": digest({"url": raw["url"], "control_states": raw.get("control_states", [])}),
         "content_hash": digest({"url": raw["url"], "text": raw["text"], "images": raw["images"], "control_states": raw.get("control_states", [])}),
     }
 
