@@ -17,6 +17,57 @@ from engines.mvp.policy import origin
 from engines.mvp.repeatability import control_identity
 from engines.mvp.urls import destination_matches
 
+# The role sets `compile_action` gates each purpose on, named so that element
+# selection can consult exactly the same rules instead of keeping a second copy.
+NAVIGATION_ROLES = frozenset({"button", "link", "menuitem", "tab"})
+ACTIVATION_ROLES = frozenset({"button", "link", "tab", "menuitem", "option", "checkbox", "radio", "switch"})
+TEXT_ENTRY_ROLES = frozenset({"textbox", "searchbox", "spinbutton"})
+TOGGLE_ROLES = frozenset({"checkbox", "radio", "switch"})
+
+
+def effective_purpose(purpose, action, role):
+    """`compile_action`'s two silent coercions of `activate`, shared so that
+    selection predicts the purpose the compiler will actually apply."""
+    if purpose == "activate" and action == "click":
+        if role in TOGGLE_ROLES:
+            return "set_checked"
+        if role in TEXT_ENTRY_ROLES:
+            return "focus"
+    return purpose
+
+
+def selectable(step, control):
+    """Could `compile_action`'s purpose gate accept this control at all?
+
+    `compile_action` below stays the enforcer; this only stops `choose_element`
+    from offering the model a control the compiler is certain to reject — a
+    search box for a navigation step, say. It reads control-local shape only
+    (role, element, form and popup state), never step values, requirement text
+    or configured checks, so it cannot reject anything the compiler would have
+    allowed. Purposes with no control-shape rule of their own — focus, keyboard,
+    inspect, and an unresolved legacy `auto` — are deliberately unfiltered.
+    """
+    control = control or {}
+    role = control.get("role") or (control.get("locator") or {}).get("role")
+    purpose = effective_purpose(step.purpose, step.action, role)
+    if purpose == "navigate":
+        return role in NAVIGATION_ROLES
+    if purpose == "activate":
+        return role in ACTIVATION_ROLES
+    if purpose == "enter_text":
+        return role in TEXT_ENTRY_ROLES and bool(control.get("editable")) and not control.get("readonly")
+    if purpose == "select_option":
+        return control.get("element") == "select"
+    if purpose == "set_checked":
+        return role in TOGGLE_ROLES
+    if purpose == "submit":
+        return bool(control.get("has_form")) and (
+            role in TEXT_ENTRY_ROLES or (role == "button" and control.get("input_type") == "submit")
+        )
+    if purpose == "dismiss":
+        return bool(control.get("in_popup")) or control.get("expanded") == "true"
+    return True
+
 
 @dataclass
 class BoundAction:
@@ -98,7 +149,7 @@ def observed_navigation_control(step, observation, history, requirement, configu
     controls = [
         item for item in observation.get("controls", [])
         if item.get("actionable", True) and not item.get("disabled") and not item.get("blocked_by_modal")
-        and item.get("role") in {"link", "button", "menuitem", "tab"}
+        and item.get("role") in NAVIGATION_ROLES
     ]
     exact = [item for item in controls if item.get("href") and destination_matches(expected, urljoin(observation["url"], item["href"]))]
     if len(exact) > 1:
@@ -128,9 +179,9 @@ def compile_action(step, control, observation, history, requirement, configurati
             "fill": "enter_text", "select": "select_option", "check": "set_checked", "read": "inspect",
             "observe": "inspect", "screenshot": "inspect", "wait": "inspect", "press": "keyboard",
         }.get(action, "activate")
-    if purpose == "activate" and action == "click" and role in {"checkbox", "radio", "switch"}:
+    if purpose == "activate" and action == "click" and role in TOGGLE_ROLES:
         purpose = "set_checked"
-    if purpose == "activate" and action == "click" and role in {"textbox", "searchbox", "spinbutton"}:
+    if purpose == "activate" and action == "click" and role in TEXT_ENTRY_ROLES:
         purpose = "focus"
     if action in {"click", "fill", "select", "check", "press", "wait"}:
         if not control or not control.get("actionable", True) or control.get("disabled") or control.get("blocked_by_modal"):
@@ -145,7 +196,7 @@ def compile_action(step, control, observation, history, requirement, configurati
             raise ActionContractError("Opening this creation flow needs a matching observed discovery transition; no action was taken.")
         expected = entry["destination_url"] if entry else known_destination(step, control, history, requirement, configuration, target_url)
         if control:
-            if role not in {"button", "link", "menuitem", "tab"}:
+            if role not in NAVIGATION_ROLES:
                 raise ActionContractError("Navigation requires an observed navigation button or link.")
             label = control.get("name", "")
             if re.search(r"\b(delete|remove|save|submit|pay|send|purchase)\b", label, re.I) or not entry and role != "link" and not re.search(
@@ -172,7 +223,7 @@ def compile_action(step, control, observation, history, requirement, configurati
         updates = {"action": "click", "expected_change": "none"}
         post = "control_focused"
     elif purpose == "enter_text":
-        if role not in {"textbox", "searchbox", "spinbutton"} or not control.get("editable") or control.get("readonly") or step.value is None:
+        if role not in TEXT_ENTRY_ROLES or not control.get("editable") or control.get("readonly") or step.value is None:
             raise ActionContractError("Text entry requires an editable text field and a planned value.")
         updates = {"action": "fill"}
         post = "value_matches"
@@ -187,7 +238,7 @@ def compile_action(step, control, observation, history, requirement, configurati
         post = "option_matches"
         expected = options[0]
     elif purpose == "set_checked":
-        if role not in {"checkbox", "radio", "switch"}:
+        if role not in TOGGLE_ROLES:
             raise ActionContractError("A checked-state action requires an observed checkbox, radio button or switch.")
         if step.checked is None and action != "check":
             raise ActionContractError("Specify whether the toggle must be checked or unchecked before interacting.")
@@ -220,7 +271,7 @@ def compile_action(step, control, observation, history, requirement, configurati
             raise ActionContractError("Submission requires an observed field or submit button associated with a form.")
         if role == "button" and control.get("input_type") == "submit":
             updates = {"action": "click", "value": None}
-        elif role in {"textbox", "searchbox", "spinbutton"}:
+        elif role in TEXT_ENTRY_ROLES:
             updates = {"action": "press", "value": "Enter"}
         else:
             raise ActionContractError("The observed control cannot submit this form.")
@@ -246,7 +297,7 @@ def compile_action(step, control, observation, history, requirement, configurati
         else:
             raise ActionContractError("The keyboard step has no defined observable result to verify.")
     elif purpose == "activate":
-        if role not in {"button", "link", "tab", "menuitem", "option", "checkbox", "radio", "switch"}:
+        if role not in ACTIVATION_ROLES:
             raise ActionContractError("Activation requires an observed interactive control; text fields must use text entry.")
         if step.purpose != "auto" and step.expected_change in {"none", "auto"} and not any(
             check.requirement_id == requirement.get("id") and check.after_step == index for check in configuration.objective_checks
