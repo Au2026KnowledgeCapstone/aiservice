@@ -15,6 +15,7 @@ dependencies = [
     "pydantic>=2.13,<3",
     "python-dotenv",
     "httpx",
+    "sentry-sdk>=2.75,<3",
     "cryptography",
     "pypdf>=5,<7",
     "google-cloud-storage>=3.17,<4",

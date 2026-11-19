@@ -2,6 +2,8 @@
 import asyncio
 import logging
 import uuid
+import sentry_sdk
+from sentry_sdk.traces import start_span
 from dataclasses import asdict
 
 from sqlalchemy.orm import sessionmaker
@@ -137,6 +139,12 @@ class JobRunner:
         return entry_id
 
     async def run(self, envelope):
+        # Jobs outlive the intake response. Give their work a separate span and
+        # isolate error context without exporting the envelope or target URL.
+        with sentry_sdk.isolation_scope(), start_span(name="job.execute", attributes={"sentry.op": "ai.job"}):
+            await self._run(envelope)
+
+    async def _run(self, envelope):
         try:
             async with self.semaphore:
                 await self.status(envelope.job_id, "running")
@@ -148,6 +156,8 @@ class JobRunner:
             raise
         except Exception as exc:
             # Store only a type, never arbitrary engine exception text.
+            if self.config.sentry_dsn:
+                sentry_sdk.capture_exception(exc)
             await self.status(envelope.job_id, "failed", type(exc).__name__)
 
     async def execute(self, envelope):
