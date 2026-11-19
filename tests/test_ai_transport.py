@@ -1,10 +1,11 @@
 import base64
 import json
+from decimal import Decimal
 
 import httpx
 import pytest
 
-from app.ai_transport import OpenAITransport
+from app.ai_transport import OpenAITransport, priced_amount
 from app.core.config import Settings
 
 
@@ -37,7 +38,20 @@ async def test_structured_request_includes_schema_images_and_usage():
     }
     assert content[1]["image_url"]["url"] == "data:image/png;base64," + base64.b64encode(b"png-data").decode()
     assert result.result == {"ok": True}
-    assert (result.input_tokens, result.output_tokens, result.amount) == (18, 5, None)
+    assert (result.input_tokens, result.output_tokens) == (18, 5)
+    assert result.amount == priced_amount("gpt-4o-mini", 18, 5) == Decimal("0.0000057")
+
+
+async def test_structured_request_leaves_amount_unknown_for_an_unpriced_model():
+    def respond(request):
+        return httpx.Response(200, json={
+            "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}],
+            "usage": {"prompt_tokens": 18, "completion_tokens": 5},
+        })
+
+    client = OpenAITransport(config(ai_model="some-future-model"), transport=httpx.MockTransport(respond))
+    result = await client.request(operation="GoalAssessment", system="Rules", user="Inspect this", schema={"type": "object"})
+    assert result.amount is None
 
 
 @pytest.mark.parametrize("payload", [
