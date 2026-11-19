@@ -10,6 +10,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.auth import require_service_token
 from app.core.config import settings
+from app.core.telemetry import configure_telemetry, RequestTelemetryMiddleware
 from app.callbacks.worker import DeliveryWorker
 from app.jobs.runner import JobRunner
 from app.jobs.store import JobConflict, job_status
@@ -26,6 +27,7 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
     @asynccontextmanager
     async def lifespan(application):
         resolved = config or settings()
+        configure_telemetry(resolved)
         db_engine = None
         factory = sessions
         if factory is None:
@@ -52,6 +54,7 @@ def create_app(config=None, sessions=None, engine_factory=build_engine, callback
                 await asyncio.to_thread(db_engine.dispose)
 
     application = FastAPI(title="BlindSpot AI Service", version="0.1.0", lifespan=lifespan)
+    application.add_middleware(RequestTelemetryMiddleware)
     if config is not None:
         application.dependency_overrides[settings] = lambda: config
 

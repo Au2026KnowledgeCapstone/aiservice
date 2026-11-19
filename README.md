@@ -12,6 +12,9 @@ Unknown values fail at startup.
 
 ## Running
 
+Optional Sentry error monitoring, filtered request logs and distributed tracing
+are documented in [docs/telemetry.md](docs/telemetry.md). A blank DSN keeps it disabled.
+
 From the repository root:
 
 ```sh

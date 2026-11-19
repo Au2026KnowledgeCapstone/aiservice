@@ -1,5 +1,6 @@
 from functools import lru_cache
 import os
+import json
 from pathlib import Path
 from typing import Literal
 
@@ -9,6 +10,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class Settings(BaseModel):
     model_config = ConfigDict(extra="ignore")
+
+    sentry_dsn: str = Field(default="", repr=False)
+    sentry_environment: str = "development"
+    sentry_release: str | None = None
+    sentry_traces_sample_rate: float = Field(default=0.1, ge=0, le=1)
+    # JSON array of anchored regexes. Empty keeps headers off arbitrary targets.
+    sentry_trace_propagation_targets: list[str] = Field(default_factory=list)
 
     engine: Literal["mvp", "graph", "stub"] = "mvp"
     database_url: str  # aiservice's own operational database. Required.
@@ -43,7 +51,7 @@ def _settings_from_sources(*sources: dict) -> Settings:
         key = name.upper()
         for scope in sources:
             if key in scope and scope[key] is not None:
-                values[name] = scope[key]
+                values[name] = json.loads(scope[key]) if name == "sentry_trace_propagation_targets" and isinstance(scope[key], str) else scope[key]
                 break
     return Settings(**values)
 
