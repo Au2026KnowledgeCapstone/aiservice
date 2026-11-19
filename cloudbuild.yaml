@@ -13,6 +13,8 @@ steps:
   - id: Deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     entrypoint: gcloud
+    # Reapply required runtime settings on every image deploy. The update flags
+    # preserve any other variables and secrets added to the service later.
     args:
       - run
       - services
@@ -20,6 +22,8 @@ steps:
       - '${_SERVICE}'
       - '--image=${_IMAGE}:${COMMIT_SHA}'
       - '--region=${_REGION}'
+      - '--update-env-vars=^@^ENGINE=mvp@PGOPTIONS=-c search_path=aiservice,public@AI_MODEL=gpt-4o-mini@MAX_CONCURRENT_JOBS=1@JOB_TIMEOUT_SECONDS=1800@EVIDENCE_SINK=gcs@GCS_EVIDENCE_BUCKET=blindspot-512322-evidence@EXTRACTION_MODEL=gpt-4o-mini@VERIFICATION_ENABLED=true'
+      - '--update-secrets=DATABASE_URL=DATABASE_URL:latest,SERVICE_TOKEN=AISERVICE_SERVICE_TOKEN:latest,AI_API_KEY=AISERVICE_OPENAI_API_KEY:latest,CALLBACK_ENCRYPTION_KEY=AISERVICE_CALLBACK_ENCRYPTION_KEY:latest,EXTRACTION_API_KEY=AISERVICE_OPENAI_API_KEY:latest'
       - --quiet
 
 options:
