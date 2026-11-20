@@ -24,7 +24,10 @@ from engines.mvp.action_contracts import compile_action, observed_navigation_con
 from engines.mvp.assessment import assess_goal
 from engines.mvp.checkpoints import change_kind, destination_matches, page_state, region_content, transition_reached, transition_step, wait_for_transition
 from engines.mvp.defaults import AI_VISION_ENABLED, MAX_ACTIONS, SCENARIO_TIMEOUT_SECONDS
-from engines.mvp.diagnostics import assessment_failures, explain_error, failure_point, safe_endpoint, short_failure_reason
+from engines.mvp.diagnostics import (
+    assessment_failures, explain_error, failure_point, safe_endpoint, short_failure_reason,
+    unreachable_controls, unreachable_summary,
+)
 from engines.mvp.errors import EngineError, PolicyDenied
 from engines.mvp.execution import Execution
 from engines.mvp.objective import run_check
@@ -541,5 +544,15 @@ async def execute_goal(session, page, plan, requirement, provider, sink, on_prog
             result.logs.append({"type": "network_errors", "requests": network})
         if session.policy.denials:
             result.logs.append({"type": "policy_denials", "requests": list(session.policy.denials)})
+        # Both the assessed and the failed path arrive here, and an inconclusive
+        # result is far more useful with the reason attached: a control the
+        # engine could see but could not identify is why a criterion went
+        # untested, and the user cannot discover that from "not tested".
+        blocked = unreachable_controls(observations, session.redactor)
+        if blocked:
+            result.logs.append({"type": "unreachable_controls", "controls": blocked})
+            note = unreachable_summary(blocked)
+            if note and result.outcome != "PASS" and note not in (result.observed_behavior or ""):
+                result.observed_behavior = f"{result.observed_behavior or ''} {note}".strip()
         await progress()
     return result

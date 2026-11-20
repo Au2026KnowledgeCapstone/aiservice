@@ -21,6 +21,68 @@ def safe_endpoint(url, redactor):
         return "[unavailable URL]"
 
 
+UNREACHABLE_REPORT_LIMIT = 8
+
+
+def unreachable_controls(observations, redactor):
+    """Visible controls the engine observed but could not use, and why.
+
+    `inspect()` already keeps a control it cannot identify: it records the
+    control, computes no locator, marks it `actionable=False` and moves on.
+    Nothing ever reported that, which is what turned "the cart was never tested"
+    into an inconclusive result with no stated cause -- the fact was sitting in
+    the observation the whole time.
+
+    Only reasons that describe the page are collected. A disabled control is
+    usually deliberate, and a redundant copy of an interchangeable control was
+    withdrawn on purpose, so neither is a finding.
+    """
+    found = {}
+    for observation in observations:
+        for control in observation.get("controls", []):
+            if control.get("actionable") or control.get("disabled") or control.get("redundant_copy"):
+                continue
+            name = (control.get("name") or "").strip()
+            if not control.get("locator") and not name:
+                reason = "no accessible name"
+            elif control.get("ambiguous"):
+                reason = "several controls share one identity"
+            else:
+                continue
+            endpoint = safe_endpoint(control["href"], redactor) if control.get("href") else None
+            key = (reason, control.get("role"), endpoint or name.casefold())
+            entry = found.setdefault(key, {
+                "reason": reason, "role": control.get("role"), "element": control.get("element"),
+                "name": redactor.text(name, 120) if name else None, "endpoint": endpoint, "occurrences": 0,
+            })
+            entry["occurrences"] += 1
+    ordered = sorted(found.values(), key=lambda item: (item["reason"], item["endpoint"] or item["name"] or ""))
+    return ordered[:UNREACHABLE_REPORT_LIMIT]
+
+
+def unreachable_summary(items):
+    """One sentence for the user-facing result; the detail stays in the log.
+
+    Scoped to the unnamed case on purpose: that one is both the reason the
+    engine could not act and a defect in the page itself, so it is worth a
+    sentence someone can act on. Ambiguity is recorded but not narrated, because
+    it describes a layout rather than something to go and fix.
+    """
+    unnamed = [item for item in items if item["reason"] == "no accessible name"]
+    if not unnamed:
+        return None
+    # A destination identifies the control to someone reading this; a bare tag
+    # name does not, so named-by-URL ones lead and the rest fall into "and more".
+    unnamed = sorted(unnamed, key=lambda item: (item["endpoint"] is None, item["endpoint"] or ""))
+    shown = [item["endpoint"] or f"an unnamed <{item['element'] or 'control'}>" for item in unnamed[:3]]
+    more = f", and {len(unnamed) - 3} more" if len(unnamed) > 3 else ""
+    subject = "control has" if len(unnamed) == 1 else "controls have"
+    return (
+        f"{len(unnamed)} visible {subject} no accessible name and could not be tested: "
+        f"{', '.join(shown)}{more}."
+    )
+
+
 def explain_error(exc, stage):
     stage = stage.replace("_", " ")
     if isinstance(exc, EngineError):
