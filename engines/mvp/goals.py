@@ -45,11 +45,24 @@ class GoalStep(GoalContract):
 
     @model_validator(mode="after")
     def valid_action(self):
-        if self.action == "navigate" and not self.url:
-            raise ValueError("navigate requires url")
-        if self.action in {"fill", "select", "press"} and self.value is None:
+        # Parse-time rejection costs the whole plan and the whole run, so this
+        # validator only refuses what no page could make valid. Anything the
+        # engine grounds against an observation belongs to compile_action, which
+        # fails one step with a precise reason and lets the rest proceed. A
+        # navigate step with no url is the example: known_destination() can still
+        # ground one from the chosen control, the requirement text or an observed
+        # destination, and refuses with "Navigation needs an observed control or
+        # a grounded destination URL" when it genuinely cannot.
+        #
+        # A submit step's action and value are both replaced during compilation
+        # (click for a submit button, Enter for a text field), so a planned press
+        # that carries no key is not a contract violation there -- demanding one
+        # here is stricter than the engine itself and rejects the whole plan over
+        # a field the compiler was always going to overwrite.
+        supplied_on_compile = self.action == "press" and self.purpose == "submit"
+        if self.action in {"fill", "select", "press"} and self.value is None and not supplied_on_compile:
             raise ValueError("Action requires value")
-        if self.action == "press" and self.value not in {"Enter", "Tab", "Escape", "Space", "ArrowDown", "ArrowUp"}:
+        if self.action == "press" and self.value is not None and self.value not in {"Enter", "Tab", "Escape", "Space", "ArrowDown", "ArrowUp"}:
             raise ValueError("Unsupported key")
         return self
 
@@ -58,7 +71,11 @@ class GoalPlan(GoalContract):
     objective: str = Field(min_length=1, max_length=2000)
     preconditions: list[str] = Field(max_length=20)
     expected_behavior: str = Field(min_length=1, max_length=3000)
-    verification_criteria: list[str] = Field(min_length=1, max_length=20)
+    # Nothing in the engine reads this -- it travels to the assessor as plan
+    # context only. Refusing an empty list cost the whole run for a field no
+    # code consumes, and the instruction itself tells the model to return
+    # manual/requires_clarification with steps=[] when nothing is testable.
+    verification_criteria: list[str] = Field(default_factory=list, max_length=20)
     priority: Priority
     testability: Testability
     steps: list[GoalStep] = Field(max_length=15)
@@ -73,7 +90,14 @@ class ElementChoice(GoalContract):
 
 
 class CriterionAssessment(GoalContract):
-    criterion_index: int = Field(ge=0, le=19)
+    # No upper bound: the requirement decides how many acceptance criteria exist
+    # and nothing upstream caps them, so any constant here is wrong. A fixed 19
+    # made every requirement with 21+ criteria permanently unassessable --
+    # assess_goal demands coverage of range(len(acceptance_criteria)), which such
+    # a response can never satisfy while also parsing. assess_goal's own check
+    # ("covered each acceptance criterion exactly once") is the real enforcer,
+    # and it knows the actual count.
+    criterion_index: int = Field(ge=0)
     status: Literal["satisfied", "violated", "inconclusive", "not_tested"]
     explanation: str = Field(min_length=1, max_length=2000)
     evidence_ids: list[str] = Field(max_length=30, description="Existing observation IDs supporting this conclusion; no invented IDs.")
@@ -81,7 +105,10 @@ class CriterionAssessment(GoalContract):
 
 class GoalAssessment(GoalContract):
     summary: str = Field(min_length=1, max_length=3000)
-    criteria: list[CriterionAssessment] = Field(min_length=1, max_length=20)
+    # Bounded by the requirement's criterion count, which assess_goal checks
+    # exactly; a constant cap here only turns a long requirement into a parse
+    # failure that names no cause.
+    criteria: list[CriterionAssessment] = Field(min_length=1)
 
 
 class VisualDiagnosis(GoalContract):

@@ -36,4 +36,15 @@ async def structured(provider, instruction: str, data: dict, schema_type: type[B
     try:
         return schema_type.model_validate(result)
     except ValidationError as exc:
-        raise EngineError(f"AI response did not match the required schema for {schema_type.__name__}.") from exc
+        # Field path and rule only -- never `input`, which would echo model output
+        # or page content into a user-facing message. Without this the whole run
+        # reports "did not match the required schema" and nobody can tell which
+        # of a fifteen-step plan was wrong, or why.
+        detail = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc']) or 'response'}: {error['msg']}"
+            for error in exc.errors()[:3]
+        )
+        raise EngineError(
+            f"AI response did not match the required schema for {schema_type.__name__}"
+            + (f" ({detail})." if detail else ".")
+        ) from exc
