@@ -189,3 +189,71 @@ def test_a_plan_with_no_verification_criteria_is_accepted():
     plan["verification_criteria"] = []
 
     assert GoalPlan.model_validate(plan).verification_criteria == []
+
+
+# --- activate steps must carry an observable change ---------------------------
+
+class PlanProvider:
+    def __init__(self, plan):
+        self.plan = plan
+
+    async def structured(self, *, operation, system, user, schema, images=()):
+        return self.plan
+
+
+def observation_for_plan():
+    return {"observation_id": "o1", "url": "https://shop.test/", "controls": [], "content_regions": []}
+
+
+async def plan_from(step):
+    from engines.mvp.planner import generate_plan
+
+    return await generate_plan(PlanProvider(plan_with(step)), {}, observation_for_plan(), "https://shop.test/")
+
+
+ADD_TO_CART = {
+    "action": "click", "purpose": "activate", "intent": "add the HP Laptop to the shopping cart",
+    "target_description": "Add to cart button on the product detail page", "expected_change": "none",
+}
+
+
+async def test_an_activate_step_declaring_no_change_is_normalised_to_content():
+    """Regression, production run #6: the model planned Add to Cart as activate
+    with expected_change=none, compile_action refused the contract, and the click
+    never happened -- all six criteria came back inconclusive. `none` is never
+    usable for an explicit activate step (objective_checks is always empty here),
+    so the plan was unrunnable either way; normalising makes it testable."""
+    plan = await plan_from(ADD_TO_CART)
+
+    assert plan.steps[0].expected_change == "content"
+
+
+async def test_a_normalised_activate_step_now_compiles():
+    """The point of the normalisation: the step reaches the page instead of
+    being refused before the click."""
+    from engines.mvp.action_contracts import compile_action
+    from engines.mvp.contracts import EngineConfiguration
+
+    plan = await plan_from(ADD_TO_CART)
+    control = {"element_id": "o1-e0", "role": "button", "name": "Add to Cart",
+               "actionable": True, "locator": {"role": "button", "name": "Add to Cart"}, "scope": []}
+    observation = {**observation_for_plan(), "controls": [control]}
+
+    bound = compile_action(plan.steps[0], control, observation, [], {}, EngineConfiguration(), "https://shop.test/", 0)
+
+    assert bound.purpose == "activate"
+    assert bound.postcondition == "content_changed", "the change is now actually verified after the click"
+
+
+async def test_an_explicit_url_expectation_is_left_alone():
+    plan = await plan_from({**ADD_TO_CART, "expected_change": "url"})
+    assert plan.steps[0].expected_change == "url"
+
+
+async def test_inspect_steps_keep_none():
+    """Only activate is normalised: a read has nothing to change."""
+    plan = await plan_from({
+        "action": "read", "purpose": "inspect", "intent": "read the cart total",
+        "target_description": "Cart subtotal", "expected_change": "none",
+    })
+    assert plan.steps[0].expected_change == "none"
