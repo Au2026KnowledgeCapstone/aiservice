@@ -220,8 +220,19 @@ def test_selectable_matches_compile_actions_role_sets():
 
     assert contracts.selectable(navigate_step(), SEARCH_BOX) is False
     assert all(contracts.selectable(navigate_step(), link) for link in PRODUCT_LINKS)
-    for role in contracts.NAVIGATION_ROLES:
-        assert contracts.selectable(navigate_step(), {"role": role}) is True
+
+    # A link needs no navigational label; any other role does. This is
+    # compile_action's second navigate gate, and skipping it is what a live run
+    # against Amazon-Clone turned into "This control cannot be established as
+    # navigation" after the role gate alone had already passed.
+    assert contracts.selectable(navigate_step(), {"role": "button", "name": "Add to Cart"}) is False
+    assert contracts.selectable(navigate_step(), {"role": "button", "name": "Back to Home"}) is True
+    assert contracts.selectable(navigate_step(), {"role": "link", "name": "Anything At All"}) is True
+    # Destructive labels are refused whatever the role.
+    assert contracts.selectable(navigate_step(), {"role": "link", "name": "Remove from cart"}) is False
+    # A form's submit button is never a navigation shortcut.
+    assert contracts.selectable(navigate_step(), {"role": "button", "name": "Go", "has_form": True, "input_type": "submit"}) is False
+
     toggle = GoalStep(action="check", purpose="set_checked", intent="tick it", target_description="a box", checked=True)
     assert contracts.selectable(toggle, {"role": "checkbox"}) is True
     assert contracts.selectable(toggle, {"role": "link"}) is False

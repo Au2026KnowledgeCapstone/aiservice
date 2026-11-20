@@ -80,7 +80,7 @@ async def choose_element(provider, step, observation):
     # one spends an AI call to produce an answer that cannot survive compilation
     # (a search box for a navigate step is the observed case). The compiler still
     # enforces; this only keeps the impossible off the shortlist.
-    candidates = [item for item in candidates if selectable(step, item)]
+    candidates = [item for item in candidates if selectable(step, item, observation)]
     if not candidates:
         return _choice(None, "No observed control can serve this step's purpose.", "unavailable")
     description = step.target_description or ""

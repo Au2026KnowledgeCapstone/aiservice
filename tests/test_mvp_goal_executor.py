@@ -339,3 +339,160 @@ async def test_checkpoint_tolerates_motion_but_not_broken_or_shifted_pages(fast_
             await context.close()
     finally:
         await session.close()
+
+
+# --- Run #4: the observed control's DOM node is replaced during the AI call ----
+
+REACT_RERENDER_HTML = b"""
+<html><body>
+  <h1>Storefront</h1>
+  <div id="grid">
+    <button class="card">HP Laptop</button>
+    <button class="card">Lenovo Laptop</button>
+  </div>
+  <div id="secret" style="display:none">Added to cart</div>
+  <script>
+    // Delegated, so it survives the grid being re-rendered underneath it --
+    // exactly like a React handler bound to the container rather than the node.
+    document.getElementById('grid').addEventListener('click', event => {
+      if (event.target.matches('button')) document.getElementById('secret').style.display = 'block';
+    });
+    // Replaces every child node with a fresh instance while rendering
+    // byte-identical markup: the page looks unchanged, but any ElementHandle
+    // pinned to one of those buttons is now detached. This is what a React
+    // re-render of an unkeyed list does to a frozen handle.
+    window.rerenderGrid = () => {
+      const grid = document.getElementById('grid');
+      grid.innerHTML = grid.innerHTML;
+    };
+    // The control is really gone, not merely re-rendered.
+    window.removeHpCard = () => document.querySelectorAll('#grid button')[0].remove();
+    // Two controls now share one semantic identity, so no single rebind target exists.
+    window.duplicateHpCard = () => {
+      const grid = document.getElementById('grid');
+      const copy = document.querySelectorAll('#grid button')[0].cloneNode(true);
+      grid.appendChild(copy);
+    };
+  </script>
+</body></html>
+"""
+
+
+@pytest.fixture
+def rerender_url():
+    yield from _serve(REACT_RERENDER_HTML)
+
+
+class RerenderDuringChoiceProvider:
+    """Replaces the chosen control's DOM node *inside* the ElementChoice call.
+
+    The real window is the AI round-trip: Run #4 spent ~2.2s there while the
+    frozen handle sat unused. Doing the swap while the call is in flight
+    reproduces that deterministically instead of racing a timer.
+    """
+
+    def __init__(self, page, mutation="() => window.rerenderGrid()"):
+        self.page = page
+        self.mutation = mutation
+        self.operations = []
+
+    async def structured(self, *, operation, system, user, schema, images=()):
+        self.operations.append(operation)
+        payload = json.loads(user)
+        if operation == "ElementChoice":
+            control = next(
+                item for item in payload["current_page"]["controls"]
+                if "HP Laptop" in (item.get("name") or "")
+            )
+            await self.page.evaluate(self.mutation)
+            return {"element_id": control["element_id"], "explanation": "The HP Laptop card."}
+        assert operation == "GoalAssessment", f"unexpected AI call: {operation}"
+        return {
+            "summary": "The cart confirmation appeared after the click.",
+            "criteria": [{
+                "criterion_index": 0, "status": "satisfied",
+                "explanation": "The confirmation text appeared after clicking the product card.",
+                "evidence_ids": [payload["observations"][-1]["observation_id"]],
+            }],
+        }
+
+
+def rerender_plan():
+    return GoalPlan(
+        objective="Verify a product card can be opened",
+        preconditions=[], expected_behavior="The cart confirmation appears after clicking a product card",
+        verification_criteria=["Confirmation is visible after the click"], priority="medium", testability="automatable",
+        # Vague on purpose: the cheap name heuristic must not resolve this, so
+        # selection goes through the AI call that opens the window.
+        steps=[GoalStep(action="click", purpose="activate", intent="open a product to add it to the cart",
+                        target_description="product card in the grid", expected_change="content")],
+    )
+
+
+def rerender_requirement():
+    return as_dict(RequirementSnapshot(
+        id="req-1", title="Add a product to the cart", description="Clicking a product card confirms the addition",
+        criteria=(CriterionSnapshot(id="c1", text="Confirmation becomes visible after clicking a product card"),),
+    ))
+
+
+async def test_control_replaced_during_the_ai_call_is_rebound_not_abandoned(rerender_url):
+    """Regression: the handle frozen by observe() was validated only after the
+    ElementChoice round-trip, so a re-render in that window killed the run with
+    "Observed control changed or became ambiguous before interaction." The
+    control is still on the page and still uniquely identifiable; the step must
+    rebind to it and proceed."""
+    session = await open_session(Target(rerender_url, 1280, 800), Credentials({}))
+    try:
+        context, page = await session.open_context()
+        try:
+            await session.open_landing(page)
+            provider = RerenderDuringChoiceProvider(page)
+            sink = FakeSink()
+            result = await execute_goal(session, page, rerender_plan(), rerender_requirement(), provider, sink)
+
+            assert "ElementChoice" in provider.operations, "the fixture must exercise the AI selection path"
+            assert result.outcome == "PASS", (result.classification, result.observed_behavior)
+            assert await page.evaluate("() => document.getElementById('secret').style.display") == "block", \
+                "the click must have actually landed on the rebound node"
+            clicks = [entry for entry in result.logs if entry.get("action") == "click"]
+            assert clicks and clicks[0].get("status") == "passed", clicks
+        finally:
+            await context.close()
+    finally:
+        await session.close()
+
+
+async def _run_with_mutation(url, mutation):
+    session = await open_session(Target(url, 1280, 800), Credentials({}))
+    try:
+        context, page = await session.open_context()
+        try:
+            await session.open_landing(page)
+            provider = RerenderDuringChoiceProvider(page, mutation)
+            result = await execute_goal(session, page, rerender_plan(), rerender_requirement(), provider, FakeSink())
+            return provider, result
+        finally:
+            await context.close()
+    finally:
+        await session.close()
+
+
+async def test_control_removed_during_the_ai_call_still_fails(rerender_url):
+    """The rebind must not become retry-until-something-works: when the chosen
+    control is genuinely gone, the step fails exactly as it did before."""
+    provider, result = await _run_with_mutation(rerender_url, "() => window.removeHpCard()")
+
+    assert "ElementChoice" in provider.operations
+    assert result.outcome == "INCONCLUSIVE"
+    assert "selected control changed" in result.observed_behavior.lower(), result.observed_behavior
+
+
+async def test_control_duplicated_during_the_ai_call_still_fails(rerender_url):
+    """Two controls sharing one identity leave no single rebind target. Picking
+    either would be a guess, so this must still fail."""
+    provider, result = await _run_with_mutation(rerender_url, "() => window.duplicateHpCard()")
+
+    assert "ElementChoice" in provider.operations
+    assert result.outcome == "INCONCLUSIVE"
+    assert "selected control changed" in result.observed_behavior.lower(), result.observed_behavior

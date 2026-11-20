@@ -88,11 +88,25 @@ const identity=m=>JSON.stringify({locator:m.locator,scope:m.scope});
 EXTRACT = '(hint) => {' + HELPERS + r"""
  const nodes=candidateNodes(),records=[];
  for(const node of nodes.slice(0,3000)){const meta=inspect(node);if(meta)records.push({node,meta})}
- const counts=new Map();for(const item of records){if(!item.meta.actionable)continue;const key=identity(item.meta);counts.set(key,(counts.get(key)||0)+1)}
+ const groups=new Map();
+ for(const item of records){if(!item.meta.actionable)continue;const key=identity(item.meta);if(!groups.has(key))groups.set(key,[]);groups.get(key).push(item)}
+ for(const group of groups.values()){
+  if(group.length<2)continue;
+  // Same identity AND one shared destination means this is the same link
+  // rendered more than once -- a carousel clone, a repeated product card.
+  // Those are redundant, not ambiguous: keep one and drop the copies, since
+  // clicking any of them goes to the same place. Without a single shared
+  // destination the target really is unclear, and every copy is withdrawn.
+  const destination=group[0].meta.href;
+  const interchangeable=!!destination&&group.every(item=>item.meta.href===destination);
+  group.forEach((item,index)=>{
+   if(!interchangeable){item.meta.ambiguous=true;item.meta.actionable=false}
+   else if(index>0){item.meta.actionable=false;item.meta.redundant_copy=true}
+  });
+ }
  const words=(hint||'').toLowerCase().match(/[\p{L}\p{N}]+/gu)||[];
  for(const item of records){
-  item.meta.ambiguous=counts.get(identity(item.meta))>1;
-  if(item.meta.ambiguous)item.meta.actionable=false;
+  if(item.meta.ambiguous===undefined)item.meta.ambiguous=false;
   const hay=JSON.stringify([item.meta.name,item.meta.placeholder,item.meta.scope,item.meta.nearby_text]).toLowerCase();
   item.rank=words.filter(word=>word.length>2&&hay.includes(word)).length*10+(item.meta.blocked_by_modal?-100:0);
  }
@@ -103,8 +117,13 @@ EXTRACT = '(hint) => {' + HELPERS + r"""
 VALIDATE = '(el,expected) => {' + HELPERS + r"""
  const meta=inspect(el);if(!meta||!meta.actionable||identity(meta)!==expected)return false;
  const nodes=candidateNodes();if(nodes.length>3000)return false;
- let matches=0;for(const node of nodes){const value=inspect(node);if(value&&value.actionable&&identity(value)===expected&&++matches>1)return false}
- return matches===1;
+ const peers=[];
+ for(const node of nodes){const value=inspect(node);if(value&&value.actionable&&identity(value)===expected)peers.push(value)}
+ if(peers.length===1)return true;
+ // Mirrors EXTRACT's rule: copies of one link sharing a destination do not make
+ // the node we are holding ambiguous. Anything else does.
+ const destination=meta.href;
+ return peers.length>0&&!!destination&&peers.every(peer=>peer.href===destination);
 }"""
 
 

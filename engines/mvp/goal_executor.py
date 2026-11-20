@@ -270,6 +270,9 @@ async def execute_goal(session, page, plan, requirement, provider, sink, on_prog
                         stage = "element_selection"
                         session.discovery_hint = step.target_description or step.intent
                         observation = await capture(index, "before_action")
+                        # Selection consults the same navigate gates compile_action
+                        # applies, so it needs the entry contracts before, not after.
+                        observation["form_entry_contracts"] = getattr(session, "form_entry_contracts", [])
                         saved_identity = bindings.get(str(index))
                         if saved_identity:
                             matches = [item for item in observation["controls"] if control_identity(item) == saved_identity]
@@ -292,8 +295,33 @@ async def execute_goal(session, page, plan, requirement, provider, sink, on_prog
                                 raise EngineError(detail)
                             element_id = choice.element_id
                             event["selection_method"] = choice._selection_method
-                        target = await session.resolve_element(element_id)
                         selected = next(item for item in observation["controls"] if item["element_id"] == element_id)
+                        try:
+                            target = await session.resolve_element(element_id)
+                        except EngineError:
+                            # observe() pins an ElementHandle to one DOM node, but that
+                            # handle is not used until after the selection round-trip
+                            # above — seconds of wall clock on a real provider. A
+                            # re-render inside that window replaces the node even when
+                            # the control is visually and semantically unchanged, and
+                            # the frozen handle is then detached. Re-observe once and
+                            # rebind by semantic identity, which is the same
+                            # cross-observation rebinding the saved_control branch above
+                            # already relies on. No model call and no cost; if the
+                            # control is genuinely gone or now ambiguous, this still
+                            # fails exactly as it did before.
+                            stale_identity = control_identity(selected)
+                            observation = await capture(index, "before_action")
+                            # Actionable only: discovery has already withdrawn the
+                            # redundant copies of an interchangeable control and
+                            # withdrawn every copy of a genuinely ambiguous one.
+                            matches = [item for item in observation["controls"] if item.get("actionable") and control_identity(item) == stale_identity]
+                            if len(matches) != 1:
+                                raise
+                            selected = matches[0]
+                            element_id = selected["element_id"]
+                            target = await session.resolve_element(element_id)
+                            event["rebound_after_rerender"] = True
                         event.update(element_id=element_id, target_identity=control_identity(selected), before_observation_id=observation["observation_id"])
                     if step.action == "navigate":
                         observation = await capture(index, "before_action")

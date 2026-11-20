@@ -23,6 +23,13 @@ NAVIGATION_ROLES = frozenset({"button", "link", "menuitem", "tab"})
 ACTIVATION_ROLES = frozenset({"button", "link", "tab", "menuitem", "option", "checkbox", "radio", "switch"})
 TEXT_ENTRY_ROLES = frozenset({"textbox", "searchbox", "spinbutton"})
 TOGGLE_ROLES = frozenset({"checkbox", "radio", "switch"})
+# A label that makes a control a business action rather than a route, and the
+# labels that establish a non-link control as navigation at all.
+DESTRUCTIVE_LABEL = re.compile(r"\b(delete|remove|save|submit|pay|send|purchase)\b", re.I)
+NAVIGATIONAL_LABEL = re.compile(
+    r"\b(back|home|dashboard|return|open|view|go|next|previous|exit|logout|sign out|log out"
+    r"|message|report|reports|profile|settings|confirm selection)\b", re.I
+)
 
 
 def effective_purpose(purpose, action, role):
@@ -36,7 +43,7 @@ def effective_purpose(purpose, action, role):
     return purpose
 
 
-def selectable(step, control):
+def selectable(step, control, observation=None):
     """Could `compile_action`'s purpose gate accept this control at all?
 
     `compile_action` below stays the enforcer; this only stops `choose_element`
@@ -51,7 +58,17 @@ def selectable(step, control):
     role = control.get("role") or (control.get("locator") or {}).get("role")
     purpose = effective_purpose(step.purpose, step.action, role)
     if purpose == "navigate":
-        return role in NAVIGATION_ROLES
+        if role not in NAVIGATION_ROLES:
+            return False
+        entry = matched_entry(control, observation) if observation is not None else None
+        if is_form_entry(control) and not entry:
+            return False
+        label = control.get("name", "") or ""
+        if DESTRUCTIVE_LABEL.search(label):
+            return False
+        if not entry and role != "link" and not NAVIGATIONAL_LABEL.search(label):
+            return False
+        return not (control.get("has_form") and control.get("input_type") == "submit")
     if purpose == "activate":
         return role in ACTIVATION_ROLES
     if purpose == "enter_text":
@@ -152,7 +169,11 @@ def observed_navigation_control(step, observation, history, requirement, configu
         and item.get("role") in NAVIGATION_ROLES
     ]
     exact = [item for item in controls if item.get("href") and destination_matches(expected, urljoin(observation["url"], item["href"]))]
-    if len(exact) > 1:
+    if len({urljoin(observation["url"], item["href"]) for item in exact}) > 1:
+        # Only a real fork in destination is a guess. Several controls resolving
+        # to one URL (the same product linked from two carousels) are the same
+        # route rendered twice; destination_matches is a prefix match, so this
+        # has to compare the resolved URLs rather than trust that they agree.
         raise ActionContractError("Multiple observed navigation controls lead to the destination; no control was guessed.")
     if exact:
         return exact[0]
@@ -199,9 +220,7 @@ def compile_action(step, control, observation, history, requirement, configurati
             if role not in NAVIGATION_ROLES:
                 raise ActionContractError("Navigation requires an observed navigation button or link.")
             label = control.get("name", "")
-            if re.search(r"\b(delete|remove|save|submit|pay|send|purchase)\b", label, re.I) or not entry and role != "link" and not re.search(
-                r"\b(back|home|dashboard|return|open|view|go|next|previous|exit|logout|sign out|log out|message|report|reports|profile|settings|confirm selection)\b", label, re.I
-            ):
+            if DESTRUCTIVE_LABEL.search(label) or not entry and role != "link" and not NAVIGATIONAL_LABEL.search(label):
                 raise ActionContractError("This control cannot be established as navigation; no action was taken.")
             if control.get("has_form") and control.get("input_type") == "submit":
                 raise ActionContractError("A submit button cannot be used as a navigation shortcut.")
